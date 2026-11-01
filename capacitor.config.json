@@ -1,0 +1,13 @@
+{
+  "appId": "com.hwfee.english",
+  "appName": "HwFee English",
+  "webDir": "web",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#e9dfcd">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<title>词间 · 每日精读</title>
+<meta name="description" content="今天的一篇短文。没有题目，也不用打卡，读慢一点就好。">
+<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="./gestures.css">
+<script type="module" src="./app.js"></script>
+</head>
+<body id="top">
+<div class="progress" aria-hidden="true"><span id="progress"></span></div>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <a class="brand" href="#top">
+      <span class="brand-cn">词间</span>
+      <span class="brand-en">BETWEEN THE WORDS</span>
+    </a>
+    <p class="masthead-note">每日一篇 · 慢慢读</p>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <p class="kicker"><span>DAILY READING</span><i></i><span id="date">今日</span></p>
+    <h1><span id="greeting">今天，</span><br><em>慢读一篇。</em></h1>
+    <p class="lede">今天的一篇短文。没有题目，也不用打卡，读慢一点就好。</p>
+    <p id="todayNote" class="today-note" role="status">正在读取今天的记录…</p>
+  </section>
+
+  <section class="paper" aria-label="阅读正文">
+    <div class="reader-tools">
+      <span class="edition">精读 <span>READING</span></span>
+      <div class="size-buttons">
+        <button id="smaller" class="link" aria-label="缩小字号">A−</button>
+        <span aria-hidden="true">/</span>
+        <button id="larger" class="link" aria-label="放大字号">A＋</button>
+      </div>
+    </div>
+
+    <div id="articleHeader" class="article-header"></div>
+    <article id="article" lang="en"></article>
+    <noscript><p class="read-empty">需要启用 JavaScript 才能读取本地文章。</p></noscript>
+
+    <div id="endMark" class="end-mark" hidden>
+      <span class="ornament" aria-hidden="true"><i></i></span>
+      <p>读到这里，今天就可以合上了。</p>
+      <a href="#top">回到页首 ↑</a>
+    </div>
+
+    <footer class="colophon">
+      <span>词间 · 每日精读</span>
+      <a id="sourceLink" href="https://web.shanbay.com/reading/web-news/articles/pteyp" target="_blank" rel="noreferrer" hidden>来源：扇贝阅读 · 仅供个人学习 ↗</a>
+    </footer>
+  </section>
+</main>
+</body>
+</html>

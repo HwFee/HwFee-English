@@ -1,0 +1,143 @@
+/* Reading gestures: sentence spans, word spans, highlights, and the bottom sheet. */
+
+/* Long-press translates, so the WebView's own text-selection callout has to stay out of the way. */
+#article .para p,
+#article .para {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#article .sent { cursor: default; }
+
+/* Known words from your Shanbay lists. */
+#article .w.hl-today {
+  border-bottom: 1.5px dotted rgba(76, 90, 68, .6);
+}
+
+#article .w.hl-wordbook {
+  background: rgba(155, 91, 59, .13);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(155, 91, 59, .13);
+}
+
+#article .w:active { background: rgba(155, 91, 59, .18); }
+
+/* --------------------------------------------------------------- bottom sheet */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(50, 43, 35, .26);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+
+.sheet-overlay.is-open { opacity: 1; }
+
+.sheet {
+  width: 100%;
+  max-height: 68vh;
+  overflow-y: auto;
+  padding: 8px 20px calc(18px + env(safe-area-inset-bottom));
+  background: var(--paper, #fcf8ee);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 30px rgba(50, 43, 35, .18);
+  transform: translateY(16px);
+  transition: transform .2s cubic-bezier(.22, .8, .24, 1);
+}
+
+.sheet-overlay.is-open .sheet { transform: none; }
+
+.sheet-grab {
+  display: block;
+  width: 38px;
+  height: 4px;
+  margin: 6px auto 14px;
+  border-radius: 2px;
+  background: var(--line, #e4d8c5);
+}
+
+.sheet-kicker {
+  margin: 0 0 7px;
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--faint, #b3a58f);
+}
+
+.sheet-title {
+  margin: 0 0 14px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 16.5px;
+  line-height: 1.55;
+  color: var(--ink, #322b23);
+}
+
+.sheet-body {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--ink-soft, #5d5347);
+}
+
+.sheet-def { margin: 0 0 9px; }
+
+.sheet-def i {
+  margin-right: 8px;
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--accent, #9b5b3b);
+}
+
+.sheet-translation {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--ink, #322b23);
+}
+
+.sheet-muted { margin: 0; color: var(--muted, #8a7c69); }
+
+.sheet-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted, #8a7c69);
+}
+
+.sheet-loading i {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line, #e4d8c5);
+  border-top-color: var(--accent, #9b5b3b);
+  border-radius: 50%;
+  animation: sheet-spin .8s linear infinite;
+}
+
+@keyframes sheet-spin { to { transform: rotate(360deg); } }
+
+.sheet-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+.sheet-btn {
+  flex: 1;
+  padding: 11px 16px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink, #322b23);
+  background: transparent;
+  border: 1px solid var(--line-strong, #cfbd9f);
+  border-radius: 999px;
+}
+
+.sheet-btn.is-primary {
+  color: var(--paper, #fcf8ee);
+  background: var(--ink, #322b23);
+  border-color: var(--ink, #322b23);
+}
+
+.sheet-btn.is-wide { width: 100%; margin-top: 14px; }
+.sheet-btn:disabled { opacity: .6; }
+.sheet-btn:active:not(:disabled) { transform: scale(.985); }

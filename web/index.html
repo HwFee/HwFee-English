@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fcf8ee">
+<title>HwFee English</title>
+<link rel="stylesheet" href="./shell.css">
+<script type="module" src="./shell.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+
+  <main id="views">
+
+    <section class="pane is-active" data-pane="listen">
+      <iframe id="listenFrame" class="frame" src="./listen/library.html" title="精听"></iframe>
+    </section>
+
+    <section class="pane" data-pane="read">
+      <iframe id="readFrame" class="frame" src="./read/index.html" title="阅读"></iframe>
+    </section>
+
+  </main>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-tab="listen" role="tab" aria-selected="true">精听</button>
+    <button class="tab" data-tab="read" role="tab" aria-selected="false">阅读</button>
+    <button class="import" id="importBtn" aria-label="导入课程 zip" title="导入课程 zip">
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4v11"></path><path d="M7.5 10.5 12 15l4.5-4.5"></path><path d="M5 19h14"></path>
+      </svg>
+    </button>
+    <button class="import" id="settingsBtn" aria-label="设置" title="设置">
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3.1"></circle>
+        <path d="M12 3v2.2M12 18.8V21M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M3 12h2.2M18.8 12H21M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"></path>
+      </svg>
+    </button>
+  </nav>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <div class="settings" id="settings" hidden>
+    <header class="settings-bar">
+      <span class="settings-title">设置</span>
+      <button class="settings-done" id="settingsClose">完成</button>
+    </header>
+
+    <div class="settings-body">
+      <section class="card">
+        <h2>扇贝</h2>
+        <p class="state" id="shanbayState">检查中…</p>
+        <div class="row">
+          <button class="btn is-primary" id="shanbayLogin">网页登录</button>
+          <button class="btn" id="shanbayPaste">粘贴 Cookie</button>
+        </div>
+        <div class="paste" id="pasteBox" hidden>
+          <textarea id="cookieInput" rows="4" spellcheck="false"
+                    placeholder="粘贴 cURL，或直接粘贴 Cookie：auth_token=…; csrftoken=…"></textarea>
+          <button class="btn is-primary is-wide" id="cookieSave">保存登录态</button>
+        </div>
+        <button class="btn is-quiet" id="shanbayClear">断开扇贝</button>
+      </section>
+
+      <section class="card">
+        <h2>翻译</h2>
+        <p class="state" id="llmState">检查中…</p>
+        <label class="field">API Key
+          <input id="llmKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
+        </label>
+        <label class="field">接口地址
+          <input id="llmBase" type="url" spellcheck="false" placeholder="https://api.deepseek.com/v1">
+        </label>
+        <label class="field">模型
+          <input id="llmModel" type="text" spellcheck="false" placeholder="deepseek-chat">
+        </label>
+        <div class="row">
+          <button class="btn is-primary" id="llmSave">保存</button>
+          <button class="btn is-quiet" id="llmClear">清除密钥</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>课程库</h2>
+        <p class="state" id="lessonState">—</p>
+      </section>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
