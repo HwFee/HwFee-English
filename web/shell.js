@@ -238,7 +238,7 @@ $('llmSave').addEventListener('click', async () => {
   const baseUrl = $('llmBase').value.trim();
   const model = $('llmModel').value.trim();
   try {
-    await api.setConfig({ key: key || undefined, baseUrl: baseUrl || undefined, model: model || undefined });
+    await api.setConfig({ key: key || undefined, baseUrl, model });
     $('llmKey').value = '';
     toast(key ? '已保存翻译密钥' : '已保存接口设置');
     refreshLlmState();

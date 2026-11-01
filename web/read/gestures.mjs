@@ -1,6 +1,7 @@
 // The three reading gestures: long-press a sentence to translate, tap a word for its card,
 // and highlight the words you are learning.
 import { openSheet, closeSheet, line, spinner } from './sheet.mjs';
+import { fetchVocabulary, validateVocabularyCache } from './vocab.mjs';
 
 const WORD_RE = /[A-Za-z]+(?:[-’'][A-Za-z]+)*/g;
 const SENTENCE_RE = /[^.!?…]+[.!?…]+["'”’)\]]?\s*|[^.!?…]+$/g;
@@ -97,8 +98,7 @@ function readVocabCache() {
     const raw = localStorage.getItem(VOCAB_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed?.at || Date.now() - parsed.at > VOCAB_TTL_MS) return null;
-    return parsed.entries ?? null;
+    return validateVocabularyCache(parsed, { ttlMs: VOCAB_TTL_MS });
   } catch { return null; }
 }
 
@@ -115,23 +115,10 @@ export async function loadHighlightVocab({ force = false } = {}) {
     return vocab.size;
   }
   const categories = Object.keys(CATEGORY_BITS).join(',');
-  const entries = [];
-  for (let page = 1; page <= 6; page++) {
-    let payload;
-    try {
-      payload = await call(`/bay-translate/user_vocabs?categories=${categories}&page=${page}&ipp=1000`);
-    } catch {
-      break;
-    }
-    const list = payload.vocabs || [];
-    for (const item of list) {
-      const mask = Number(item.categories) || 0;
-      entries.push([String(item.vocab).toLowerCase(), mask]);
-      for (const variant of item.variants || []) entries.push([String(variant).toLowerCase(), mask]);
-    }
-    if (list.length === 0 || page * 1000 >= (payload.total || 0)) break;
-  }
-  vocab = new Map(entries);
+  const entries = await fetchVocabulary((page) =>
+    call(`/bay-translate/user_vocabs?categories=${categories}&page=${page}&ipp=1000`));
+  const complete = new Map(entries);
+  vocab = complete;
   writeVocabCache(entries);
   applyHighlights();
   return vocab.size;
@@ -188,7 +175,7 @@ async function wordCard(word) {
         exists = !exists;
         action.className = 'sheet-btn' + (exists ? '' : ' is-primary') + ' is-wide';
         action.textContent = exists ? '已在生词本 · 移除' : '加入生词本';
-        if (exists) loadHighlightVocab({ force: true });
+        loadHighlightVocab({ force: true }).catch(() => {});
       } catch (error) {
         action.textContent = '操作失败：' + error.message;
       } finally {

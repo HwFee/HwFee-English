@@ -13,6 +13,9 @@ import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Build;
+import android.os.SystemClock;
+import android.os.PowerManager;
 
 /**
  * Keeps lesson audio alive with the screen off, and puts it on the lock screen.
@@ -31,11 +34,17 @@ public class PlaybackService extends Service {
 
     private static final String CHANNEL = "playback";
     private static final int NOTIFICATION_ID = 4211;
+    private static volatile boolean active;
+
+    static boolean hasSession() {
+        return active;
+    }
 
     private MediaSession session;
     private Handler handler;
     private Runnable sleepTask;
     private long sleepEndsAt = 0;
+    private PowerManager.WakeLock sleepWakeLock;
 
     private boolean playing;
     private long position;
@@ -49,23 +58,30 @@ public class PlaybackService extends Service {
         handler = new Handler(Looper.getMainLooper());
         session = new MediaSession(this, "HwFeeEnglish");
         session.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { AudioBridge.evalToggle(); }
+            @Override public void onPlay() { AudioBridge.evalPlay(); }
             @Override public void onPause() { AudioBridge.evalPause(); }
-            @Override public void onStop() { AudioBridge.evalPause(); stopSelf(); }
+            @Override public void onStop() { active = false; AudioBridge.evalPause(); stopSelf(); }
             @Override public void onSeekTo(long pos) { AudioBridge.evalSeekTo(pos / 1000.0); }
         });
         session.setActive(true);
 
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationChannel channel = new NotificationChannel(CHANNEL, "播放", NotificationManager.IMPORTANCE_LOW);
-        channel.setShowBadge(false);
-        manager.createNotificationChannel(channel);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "播放", NotificationManager.IMPORTANCE_LOW);
+            channel.setShowBadge(false);
+            manager.createNotificationChannel(channel);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_START.equals(action) || ACTION_STATE.equals(action)) {
+            if (ACTION_STATE.equals(action) && !active && !intent.getBooleanExtra("playing", false)) {
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            active = true;
             if (intent != null) {
                 playing = intent.getBooleanExtra("playing", playing);
                 position = intent.getLongExtra("position", position);
@@ -83,30 +99,48 @@ public class PlaybackService extends Service {
         } else if (ACTION_PAUSE.equals(action)) {
             AudioBridge.evalPause();
         } else if (ACTION_STOP.equals(action)) {
+            active = false;
             AudioBridge.evalPause();
             stopSelf();
             return START_NOT_STICKY;
         } else if (ACTION_SLEEP.equals(action)) {
+            if (!active) {
+                stopSelf();
+                return START_NOT_STICKY;
+            }
             scheduleSleep(intent == null ? 0 : intent.getIntExtra("seconds", 0));
             startForeground(NOTIFICATION_ID, buildNotification());
+        } else {
+            stopSelf(); // A WebView player cannot be restored by restarting an empty service.
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void scheduleSleep(int seconds) {
-        if (sleepTask != null) handler.removeCallbacks(sleepTask);
-        if (seconds <= 0) {
-            sleepEndsAt = 0;
-            sleepTask = null;
-            return;
-        }
-        sleepEndsAt = System.currentTimeMillis() + seconds * 1000L;
+        clearSleep();
+        if (seconds <= 0) return;
+        sleepEndsAt = SystemClock.elapsedRealtime() + seconds * 1000L;
+        PowerManager power = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        sleepWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HwFeeEnglish:sleep");
+        sleepWakeLock.setReferenceCounted(false);
+        // Handler uses uptime. Keep the CPU awake only while a requested timer is pending,
+        // so screen-off/deep sleep cannot delay the pause; the timeout also bounds this lock.
+        sleepWakeLock.acquire(seconds * 1000L + 5000);
         sleepTask = () -> {
             AudioBridge.evalPause();
-            sleepEndsAt = 0;
-            sleepTask = null;
+            clearSleep();
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            manager.notify(NOTIFICATION_ID, buildNotification());
         };
         handler.postDelayed(sleepTask, seconds * 1000L);
+    }
+
+    private void clearSleep() {
+        if (sleepTask != null) handler.removeCallbacks(sleepTask);
+        sleepTask = null;
+        sleepEndsAt = 0;
+        if (sleepWakeLock != null && sleepWakeLock.isHeld()) sleepWakeLock.release();
+        sleepWakeLock = null;
     }
 
     private void pushSessionState() {
@@ -129,8 +163,9 @@ public class PlaybackService extends Service {
     }
 
     private Notification buildNotification() {
-        Notification.Builder builder = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_media_play)
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
+        builder.setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(title.isEmpty() ? "精听" : title)
                 .setContentText(artist)
                 .setOngoing(playing)
@@ -146,7 +181,7 @@ public class PlaybackService extends Service {
                 android.R.drawable.ic_menu_close_clear_cancel, "停止", command(ACTION_STOP)).build());
 
         if (sleepTask != null) {
-            long minutesLeft = Math.max(0, (sleepEndsAt - System.currentTimeMillis()) / 60_000L);
+            long minutesLeft = Math.max(0, (sleepEndsAt - SystemClock.elapsedRealtime()) / 60_000L);
             builder.setSubText(minutesLeft < 1
                     ? "睡眠定时 · 不到 1 分钟"
                     : "睡眠定时 · 还有 " + minutesLeft + " 分钟");
@@ -167,7 +202,9 @@ public class PlaybackService extends Service {
 
     @Override
     public void onDestroy() {
-        if (sleepTask != null) handler.removeCallbacks(sleepTask);
+        active = false;
+        clearSleep();
+        stopForeground(true);
         if (session != null) {
             session.setActive(false);
             session.release();

@@ -6,14 +6,13 @@ import android.webkit.WebResourceResponse;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Locale;
 
 /**
  * Serves imported lessons on the app's own origin, so every lesson shares one localStorage.
@@ -27,12 +26,12 @@ public final class LessonServer {
 
     public static WebResourceResponse serveLesson(LessonStore store, WebResourceRequest request) throws IOException {
         String rawPath = request.getUrl().getPath();
-        if (rawPath == null) return notFound();
-        String relative = URLDecoder.decode(rawPath.substring("/lessons/".length()), "UTF-8");
-        if (relative.isEmpty() || relative.contains("..")) return notFound();
+        if (rawPath == null || !rawPath.startsWith("/lessons/")) return notFound();
+        // Uri.getPath() is already decoded. Decoding it again corrupts literal '+' and '%' names.
+        String relative = rawPath.substring("/lessons/".length());
 
-        File file = new File(store.root(), relative);
-        if (file.isDirectory()) file = new File(file, "player.html");
+        File file = LessonRequestSupport.resolveLessonFile(store.root(), relative);
+        if (file == null) return notFound();
         if (!file.isFile()) return notFound();
 
         String mime = mimeFor(file.getName());
@@ -45,7 +44,8 @@ public final class LessonServer {
             return servePlayerWithShim(file);
         }
 
-        if (range != null && range.startsWith("bytes=") && total > 0) {
+        if (range != null && range.startsWith("bytes=") && total > 0
+                && !LessonRequestSupport.isMultiRange(range)) {
             long[] bounds = parseRange(range, total);
             if (bounds == null) {
                 Map<String, String> headers = new LinkedHashMap<>();
@@ -63,7 +63,8 @@ public final class LessonServer {
             headers.put("Accept-Ranges", "bytes");
             headers.put("Content-Length", String.valueOf(length));
             headers.put("Cache-Control", "no-store");
-            return new WebResourceResponse(mime, null, 206, "Partial Content", headers, new RangeStream(raf, length));
+            return new WebResourceResponse(mime, null, 206, "Partial Content", headers,
+                    new LessonRequestSupport.RangeStream(raf, length));
         }
 
         Map<String, String> headers = new LinkedHashMap<>();
@@ -83,7 +84,7 @@ public final class LessonServer {
             html = new String(readAll(in), StandardCharsets.UTF_8);
         }
         String data = store.libraryData().toString();
-        html = html.replace("__DATA__", data);
+        html = html.replace("__DATA__", LessonRequestSupport.escapeJsonForHtmlScript(data));
 
         // The vendored page tells the reader to run a Python command; here there is a button.
         if (data.contains("\"lessons\":[]")) {
@@ -139,34 +140,12 @@ public final class LessonServer {
         return null;
     }
 
-    /** Parses "bytes=start-end" (both open-ended forms included) into an inclusive pair. */
     private static long[] parseRange(String range, long total) {
-        try {
-            String spec = range.substring("bytes=".length()).trim();
-            int dash = spec.indexOf('-');
-            if (dash < 0) return null;
-            String head = spec.substring(0, dash).trim();
-            String tail = spec.substring(dash + 1).trim();
-            long start;
-            long end;
-            if (head.isEmpty()) {
-                long suffix = Long.parseLong(tail);
-                if (suffix <= 0) return null;
-                start = Math.max(0, total - suffix);
-                end = total - 1;
-            } else {
-                start = Long.parseLong(head);
-                end = tail.isEmpty() ? total - 1 : Math.min(Long.parseLong(tail), total - 1);
-            }
-            if (start > end || start >= total) return null;
-            return new long[]{start, end};
-        } catch (NumberFormatException error) {
-            return null;
-        }
+        return LessonRequestSupport.parseRange(range, total);
     }
 
     private static InputStream rangeStream(File file) throws IOException {
-        return new RangeStream(new RandomAccessFile(file, "r"), file.length());
+        return new LessonRequestSupport.RangeStream(new RandomAccessFile(file, "r"), file.length());
     }
 
     private static byte[] readAll(InputStream in) throws IOException {
@@ -178,7 +157,7 @@ public final class LessonServer {
     }
 
     private static String mimeFor(String name) {
-        String lower = name.toLowerCase();
+        String lower = name.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".html")) return "text/html";
         if (lower.endsWith(".css")) return "text/css";
         if (lower.endsWith(".js")) return "text/javascript";
@@ -197,35 +176,4 @@ public final class LessonServer {
         return "application/octet-stream";
     }
 
-    /** Bounded read over a RandomAccessFile: what WebView gets for a 206 response. */
-    private static final class RangeStream extends InputStream {
-        private final RandomAccessFile file;
-        private long remaining;
-
-        RangeStream(RandomAccessFile file, long length) {
-            this.file = file;
-            this.remaining = length;
-        }
-
-        @Override
-        public int read() throws IOException {
-            if (remaining <= 0) return -1;
-            int value = file.read();
-            if (value >= 0) remaining--;
-            return value;
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) throws IOException {
-            if (remaining <= 0) return -1;
-            int read = file.read(buffer, offset, (int) Math.min(length, remaining));
-            if (read > 0) remaining -= read;
-            return read;
-        }
-
-        @Override
-        public void close() throws IOException {
-            file.close();
-        }
-    }
 }

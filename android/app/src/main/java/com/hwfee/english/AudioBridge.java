@@ -1,6 +1,7 @@
 package com.hwfee.english;
 
 import android.webkit.WebView;
+import java.lang.ref.WeakReference;
 
 /**
  * The one line between the playback service and the player living in the WebView.
@@ -10,17 +11,17 @@ import android.webkit.WebView;
  */
 public final class AudioBridge {
 
-    private static WebView webView;
+    private static volatile WeakReference<WebView> webView = new WeakReference<>(null);
 
     private AudioBridge() {
     }
 
     public static void attach(WebView view) {
-        webView = view;
+        webView = new WeakReference<>(view);
     }
 
     static void eval(String script) {
-        WebView view = webView;
+        WebView view = webView.get();
         if (view == null) return;
         view.post(() -> {
             try {
@@ -40,6 +41,10 @@ public final class AudioBridge {
 
     public static void evalToggle() {
         eval(shim("a.toggle()"));
+    }
+
+    public static void evalPlay() {
+        eval(shim("a.play()"));
     }
 
     public static void evalPause() {

@@ -40,7 +40,7 @@ function renderToday() {
     if (Number.isFinite(s.a_finished_count) && Number.isFinite(s.a_count)) parts.push(`新词 ${s.a_finished_count}/${s.a_count}`);
     if (Number.isFinite(s.c_finished_count) && Number.isFinite(s.c_count)) parts.push(`复习 ${s.c_finished_count}/${s.c_count}`);
     parts.push(finished ? '已完成' : '进行中');
-    $('todayNote').textContent = `今日学习 · ${parts.join(' · ')}`;
+    $('todayNote').textContent = `${state.offline ? '离线缓存 · ' : ''}今日学习 · ${parts.join(' · ')}`;
   } else {
     $('todayNote').textContent = '今天的记录还没有读到。';
   }

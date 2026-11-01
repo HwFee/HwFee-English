@@ -7,6 +7,8 @@ import { Shanbay } from './lib.mjs';
 import { sourcePlan, crossLearningArticleId, associationWords, matchedTodayWords } from './article-source.mjs';
 
 const CACHE_PREFIX = 'hwfee:article:';
+const LAST_STATE_KEY = 'hwfee:reader:last-successful';
+const CACHE_MAX_AGE_DAYS = 60;
 const CALL_TIMEOUT_MS = 45000;
 
 // Both tabs are iframes on the app origin. An iframe receives its own injected Capacitor, but
@@ -24,10 +26,15 @@ function plugin() {
 }
 
 function withTimeout(promise, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' 超时')), CALL_TIMEOUT_MS)),
-  ]);
+  let timeout;
+  const timedOut = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error(label + ' 超时');
+      error.code = 'NETWORK_ERROR';
+      reject(error);
+    }, CALL_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timedOut]).finally(() => clearTimeout(timeout));
 }
 
 /** fetch-shaped adapter around the native request method. */
@@ -69,12 +76,46 @@ function cacheKey(date) {
   return CACHE_PREFIX + date;
 }
 
+function validDate(date) {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const parsed = new Date(date + 'T00:00:00Z');
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+}
+
+function dateAgeDays(date) {
+  if (!validDate(date)) return Infinity;
+  return (Date.parse(localDate() + 'T00:00:00Z') - Date.parse(date + 'T00:00:00Z')) / 86400000;
+}
+
+function freshDate(date) {
+  const age = dateAgeDays(date);
+  return age >= 0 && age <= CACHE_MAX_AGE_DAYS;
+}
+
+function validArticle(article, date = article?.date) {
+  return Boolean(article && typeof article === 'object'
+    && article.date === date && freshDate(date)
+    && typeof article.title === 'string' && typeof article.subtitle === 'string'
+    && Array.isArray(article.paragraphs) && article.paragraphs.length > 0
+    && article.paragraphs.every((paragraph) => typeof paragraph === 'string' && paragraph.trim()));
+}
+
+function validState(state) {
+  return Boolean(state && typeof state === 'object'
+    && state.today && typeof state.today === 'object'
+    && freshDate(state.today.date)
+    && typeof state.today.book === 'string'
+    && state.today.status && typeof state.today.status === 'object'
+    && validArticle(state.article, state.today.date));
+}
+
 function readCache(date) {
+  if (!freshDate(date)) return null;
   try {
     const raw = localStorage.getItem(cacheKey(date));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.paragraphs) && parsed.paragraphs.length ? parsed : null;
+    return validArticle(parsed, date) ? parsed : null;
   } catch {
     return null;
   }
@@ -82,20 +123,33 @@ function readCache(date) {
 
 function writeCache(article) {
   try {
-    localStorage.setItem(cacheKey(article.date), JSON.stringify(article));
     pruneCache();
+    localStorage.setItem(cacheKey(article.date), JSON.stringify(article));
   } catch {}
+}
+
+function readLastState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LAST_STATE_KEY) || 'null');
+    return validState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastState(state) {
+  try { localStorage.setItem(LAST_STATE_KEY, JSON.stringify(state)); } catch {}
 }
 
 /** Keeps the local archive bounded: articles older than this are dropped. */
 function pruneCache(keepDays = 60) {
-  const cutoff = Date.now() - keepDays * 86400000;
   const stale = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (!key || !key.startsWith(CACHE_PREFIX)) continue;
-    const stamp = Date.parse(key.slice(CACHE_PREFIX.length) + 'T00:00:00+08:00');
-    if (Number.isFinite(stamp) && stamp < cutoff) stale.push(key);
+    const date = key.slice(CACHE_PREFIX.length);
+    const age = dateAgeDays(date);
+    if (!Number.isFinite(age) || age < 0 || age > keepDays) stale.push(key);
   }
   for (const key of stale) {
     try { localStorage.removeItem(key); } catch {}
@@ -112,7 +166,8 @@ async function fetchArticle(api, today) {
     try {
       matched = await api.request('/abc/applets/cross_learning/article');
       id = crossLearningArticleId(matched);
-    } catch {
+    } catch (error) {
+      if (error?.code && !['NETWORK_ERROR', 'NOT_READY', 'HTTP_ERROR', 'REDIRECT_BLOCKED'].includes(error.code)) throw error;
       id = null;
     }
   }
@@ -130,7 +185,7 @@ async function fetchArticle(api, today) {
   const article = {
     title: String(data.title_en || '').trim(),
     subtitle: String(data.title_cn || '').trim(),
-    date: today.status?.date || localDate(),
+    date: today.status?.date || today.date || localDate(),
     source: `https://web.shanbay.com/reading/web-news/articles/${data.id}`,
     sourceName: '扇贝阅读',
     originalSource: data.source?.name_cn || '',
@@ -170,15 +225,26 @@ export async function loadState({ force = false } = {}) {
   const api = plugin();
   if (!api) throw new Error('bridge 不可用，请在 app 里打开');
   const clientApi = client();
-  const today = await clientApi.today();
-  const shaped = shapeToday(today);
+  try {
+    const today = await clientApi.today();
+    const shaped = shapeToday(today);
+    if (!freshDate(shaped.date) || !shaped.status || typeof shaped.status !== 'object') {
+      throw new Error('今日学习数据格式无效');
+    }
 
-  let article = force ? null : readCache(shaped.date);
-  if (!article) {
-    article = await fetchArticle(clientApi, today);
+    let article = force ? null : readCache(shaped.date);
+    if (!article) article = await fetchArticle(clientApi, today);
+    if (!validArticle(article, shaped.date)) throw new Error('文章缓存格式无效');
+
+    const state = { today: shaped, article };
     writeCache(article);
+    writeLastState(state);
+    return { ...state, offline: false };
+  } catch (error) {
+    const cached = readLastState();
+    if (error?.code === 'NETWORK_ERROR' && cached) return { ...cached, offline: true };
+    throw error;
   }
-  return { today: shaped, article };
 }
 
 /** Cached articles, newest first — used by the history view. */
@@ -189,7 +255,7 @@ export function cachedArticles() {
     if (!key || !key.startsWith(CACHE_PREFIX)) continue;
     try {
       const article = JSON.parse(localStorage.getItem(key));
-      if (article?.date) out.push({ date: article.date, title: article.title });
+      if (validArticle(article)) out.push({ date: article.date, title: article.title });
     } catch {}
   }
   return out.sort((a, b) => (a.date < b.date ? 1 : -1));

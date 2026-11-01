@@ -34,30 +34,44 @@ public class AudioPlugin extends Plugin {
                 .putExtra("title", data.optString("title", "精听"))
                 .putExtra("artist", data.optString("artist", ""))
                 .putExtra("duration", secondsToMillis(data.optDouble("duration", 0)));
-        ContextCompat.startForegroundService(getContext(), intent);
-        call.resolve();
+        try {
+            ContextCompat.startForegroundService(getContext(), intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("无法启动后台播放，请回到应用后重试");
+        }
     }
 
     @PluginMethod
     public void state(PluginCall call) {
         JSObject data = call.getData();
+        boolean playing = data.optBoolean("playing", false);
+        if (!playing && !PlaybackService.hasSession()) {
+            call.resolve(); // Loading an idle lesson must not create a playback service.
+            return;
+        }
         Intent intent = new Intent(getContext(), PlaybackService.class)
                 .setAction(PlaybackService.ACTION_STATE)
-                .putExtra("playing", data.optBoolean("playing", false))
+                .putExtra("playing", playing)
                 .putExtra("position", secondsToMillis(data.optDouble("position", 0)))
                 .putExtra("duration", secondsToMillis(data.optDouble("duration", 0)))
                 .putExtra("title", data.optString("title", ""))
                 .putExtra("artist", data.optString("artist", ""));
         try {
-            getContext().startService(intent);
-        } catch (Exception ignored) {
-            // service not running (never started, or stopped by the system): nothing to update
+            if (playing && !PlaybackService.hasSession()) {
+                ContextCompat.startForegroundService(getContext(), intent);
+            } else {
+                getContext().startService(intent);
+            }
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("无法更新后台播放状态，请回到应用后重试");
         }
-        call.resolve();
     }
 
     @PluginMethod
     public void stop(PluginCall call) {
+        AudioBridge.evalPause();
         getContext().stopService(new Intent(getContext(), PlaybackService.class));
         call.resolve();
     }
@@ -66,7 +80,21 @@ public class AudioPlugin extends Plugin {
     public void sleep(PluginCall call) {
         // Minutes may be fractional; the service works in whole seconds.
         double minutes = call.getData().optDouble("minutes", 0);
+        if (!Double.isFinite(minutes) || minutes < 0 || minutes > Integer.MAX_VALUE / 60.0) {
+            call.reject("睡眠定时时间无效");
+            return;
+        }
         int seconds = (int) Math.round(minutes * 60);
+        if (!PlaybackService.hasSession()) {
+            if (seconds > 0) {
+                call.reject("睡眠定时需要先开始播放");
+            } else {
+                JSObject out = new JSObject();
+                out.put("seconds", 0);
+                call.resolve(out);
+            }
+            return;
+        }
         Intent intent = new Intent(getContext(), PlaybackService.class)
                 .setAction(PlaybackService.ACTION_SLEEP)
                 .putExtra("seconds", seconds);
@@ -82,7 +110,7 @@ public class AudioPlugin extends Plugin {
     }
 
     private long secondsToMillis(double seconds) {
-        return Math.round(seconds * 1000);
+        return Double.isFinite(seconds) ? Math.max(0, Math.round(seconds * 1000)) : 0;
     }
 
     private void maybeAskForNotifications() {

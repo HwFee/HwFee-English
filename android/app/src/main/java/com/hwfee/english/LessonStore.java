@@ -6,8 +6,6 @@ import android.net.Uri;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -18,9 +16,10 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Owns imported lessons: extraction from a cherina-pod zip, the on-disk layout, and the
@@ -56,6 +55,12 @@ public class LessonStore {
             instance = new LessonStore(context.getApplicationContext());
             //noinspection ResultOfMethodCallIgnored
             instance.root.mkdirs();
+            try {
+                new LessonInstaller(instance.root).recover();
+                instance.cleanAbandonedImports();
+            } catch (IOException ignored) {
+                // Keep the backup intact; import retries recovery and reports any storage failure.
+            }
         }
         return instance;
     }
@@ -65,12 +70,12 @@ public class LessonStore {
     }
 
     /** Payload consumed by the cherina-pod index page, in exactly its own shape. */
-    public JSONObject libraryData() {
+    public synchronized JSONObject libraryData() {
         JSONArray lessons = new JSONArray();
         File[] entries = root.listFiles();
         List<File> ordered = new ArrayList<>();
         if (entries != null) ordered.addAll(Arrays.asList(entries));
-        ordered.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        Collections.sort(ordered, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
         for (File dir : ordered) {
             File meta = new File(dir, "meta.json");
             if (!meta.isFile()) continue;
@@ -96,47 +101,46 @@ public class LessonStore {
 
     public synchronized Report importZip(Uri uri, Context context) throws IOException {
         Report report = new Report();
-        File staging = new File(root.getParentFile(), ".import-" + System.currentTimeMillis());
+        File staging = new File(root.getParentFile(), ".import-" + UUID.randomUUID());
         try {
+            new LessonInstaller(root).recover();
+            cleanAbandonedImports();
             unzip(uri, context, staging);
             collectLessons(staging, report);
+            if (report.imported.isEmpty() && report.failed.isEmpty()) {
+                throw new IOException("压缩包内没有找到可用课程");
+            }
         } finally {
             deleteTree(staging);
         }
         return report;
     }
 
-    public boolean remove(String id) {
-        if (id == null || id.isEmpty()) return false;
-        return deleteTree(new File(root, id));
+    public synchronized boolean remove(String id) {
+        File lesson = LessonPath.directLessonDirectory(root, id);
+        if (lesson == null || !lesson.isDirectory()) return false;
+        return LessonPath.deleteLessonTree(lesson);
     }
 
     // ---------------------------------------------------------------- unzip
 
+    private void cleanAbandonedImports() throws IOException {
+        File parent = root.getCanonicalFile().getParentFile();
+        File[] entries = parent.listFiles();
+        if (entries == null) return;
+        for (File entry : entries) {
+            if (entry.getName().startsWith(".import-") && entry.isDirectory()) {
+                LessonPath.deleteLessonTree(entry);
+            }
+        }
+    }
+
     private void unzip(Uri uri, Context context, File dest) throws IOException {
         InputStream raw = context.getContentResolver().openInputStream(uri);
         if (raw == null) throw new IOException("无法读取所选文件");
-        String destPrefix = dest.getCanonicalPath() + File.separator;
-        byte[] buffer = new byte[64 * 1024];
-        try (ZipInputStream zip = new ZipInputStream(new BufferedInputStream(raw))) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
-                if (entry.isDirectory()) continue;
-                String name = entry.getName().replace('\\', '/');
-                if (name.startsWith("__MACOSX/")) continue;
-                if (name.endsWith(".DS_Store")) continue;
-                File out = new File(dest, name);
-                if (!out.getCanonicalPath().startsWith(destPrefix)) continue; // zip-slip
-                File parent = out.getParentFile();
-                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-                    throw new IOException("无法创建目录：" + parent.getName());
-                }
-                try (OutputStream os = new BufferedOutputStream(new FileOutputStream(out))) {
-                    int read;
-                    while ((read = zip.read(buffer)) > 0) os.write(buffer, 0, read);
-                }
-            }
-        }
+        long budget = Math.min(LessonArchive.MAX_BYTES,
+                Math.max(0, root.getParentFile().getUsableSpace() - LessonArchive.RESERVED_BYTES));
+        LessonArchive.extract(raw, dest, budget);
     }
 
     // ------------------------------------------------------- lesson discovery
@@ -165,6 +169,11 @@ public class LessonStore {
     }
 
     private void walk(File dir, List<File> players, List<File> singles) {
+        File player = new File(dir, "player.html");
+        if (player.isFile()) {
+            players.add(player);
+            return; // A folder lesson owns all of its assets, including other HTML files.
+        }
         File[] children = dir.listFiles();
         if (children == null) return;
         for (File child : children) {
@@ -203,39 +212,40 @@ public class LessonStore {
     private void adoptFolderLesson(File lessonDir, File staging, Report report) throws Exception {
         File player = new File(lessonDir, "player.html");
         JSONObject data = lessonData(player);
-        String relative = staging.toPath().relativize(lessonDir.toPath()).toString().replace('\\', '/');
+        if (data == null) throw new IOException("无法读取课程数据");
+        String relative = staging.toURI().relativize(lessonDir.toURI()).getPath().replaceAll("/$", "");
         String id = sanitize(relative.replace('/', '-'));
-        File target = new File(root, id);
-        deleteTree(target);
-        if (!lessonDir.renameTo(target)) {
-            copyTree(lessonDir, target);
-            deleteTree(lessonDir);
-        }
-        writeMeta(new File(target, "meta.json"), id, data, levelLabel(relative));
+        if (report.imported.contains(id)) throw new IOException("压缩包内课程 ID 重复");
+        writeMeta(new File(lessonDir, "meta.json"), id, data, levelLabel(relative));
+        new LessonInstaller(root).install(lessonDir, id);
         report.imported.add(id);
     }
 
     private void adoptSingleFileLesson(File file, File staging, Report report) throws Exception {
         String baseName = file.getName().substring(0, file.getName().length() - ".html".length());
         JSONObject data = lessonData(file);
-        String relative = staging.toPath().relativize(file.toPath()).toString().replace('\\', '/');
+        if (data == null) throw new IOException("无法读取课程数据");
+        String relative = staging.toURI().relativize(file.toURI()).getPath();
         String id = sanitize(relative.replace('/', '-').replaceAll("\\.html$", ""));
         if (id.isEmpty()) id = sanitize(baseName);
-        File target = new File(root, id);
-        deleteTree(target);
-        if (!target.mkdirs()) throw new IOException("无法创建课程目录");
-        File player = new File(target, "player.html");
-        if (!file.renameTo(player)) {
-            copyFile(file, player);
+        if (report.imported.contains(id)) throw new IOException("压缩包内课程 ID 重复");
+        File prepared = new File(staging, ".prepared-" + UUID.randomUUID());
+        if (!prepared.mkdirs()) throw new IOException("无法创建课程目录");
+        try {
+            File player = new File(prepared, "player.html");
+            if (!file.renameTo(player)) throw new IOException("无法准备课程文件");
+            writeMeta(new File(prepared, "meta.json"), id, data, levelLabel(relative));
+            new LessonInstaller(root).install(prepared, id);
+        } finally {
+            deleteTree(prepared);
         }
-        writeMeta(new File(target, "meta.json"), id, data, levelLabel(relative));
         report.imported.add(id);
     }
 
     /** cet4/cet6 folders carry two versions of one lesson; the label tells them apart in the list. */
     private static String levelLabel(String relative) {
         for (String part : relative.split("/")) {
-            String lower = part.toLowerCase();
+            String lower = part.toLowerCase(Locale.ROOT);
             if (lower.equals("cet4")) return "四级";
             if (lower.equals("cet6")) return "六级";
             if (part.equals("四级")) return "四级";
@@ -246,7 +256,8 @@ public class LessonStore {
 
     private static String sanitize(String raw) {
         String safe = raw == null ? "" : raw.replaceAll("[^A-Za-z0-9._-]", "-");
-        return safe.isEmpty() ? "lesson-" + System.currentTimeMillis() : safe;
+        return safe.isEmpty() || safe.equals(".") || safe.equals("..")
+                ? "lesson-" + UUID.randomUUID() : safe;
     }
 
     // -------------------------------------------------------------- metadata
@@ -315,33 +326,11 @@ public class LessonStore {
             byte[] chunk = new byte[16 * 1024];
             long total = 0;
             int read;
-            while (total < limit && (read = in.read(chunk)) > 0) {
+            while (total < limit && (read = in.read(chunk, 0, (int) Math.min(chunk.length, limit - total))) > 0) {
                 buffer.write(chunk, 0, read);
                 total += read;
             }
             return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private static void copyFile(File from, File to) throws IOException {
-        try (InputStream in = new FileInputStream(from);
-             OutputStream out = new BufferedOutputStream(new FileOutputStream(to))) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
-        }
-    }
-
-    private static void copyTree(File from, File to) throws IOException {
-        if (from.isDirectory()) {
-            if (!to.isDirectory() && !to.mkdirs()) throw new IOException("无法创建目录");
-            File[] children = from.listFiles();
-            if (children == null) return;
-            for (File child : children) copyTree(child, new File(to, child.getName()));
-        } else {
-            File parent = to.getParentFile();
-            if (parent != null) parent.mkdirs();
-            copyFile(from, to);
         }
     }
 

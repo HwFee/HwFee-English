@@ -100,19 +100,25 @@ public class LoginActivity extends Activity {
         lastAttempt = cookie;
 
         new Thread(() -> {
-            if (!authenticates(cookie)) return;
-            try {
-                Vault.put(this, "shanbay.cookie", cookie);
-                CookieManager.getInstance().flush();
+            if (!authenticates(cookie)) {
                 runOnUiThread(() -> {
-                    if (finishing) return;
+                    if (cookie.equals(lastAttempt)) lastAttempt = null;
+                });
+                return;
+            }
+            runOnUiThread(() -> {
+                if (finishing || isFinishing() || isDestroyed()) return;
+                try {
+                    Vault.put(this, "shanbay.cookie", cookie);
+                    CookieManager.getInstance().flush();
                     finishing = true;
                     setResult(RESULT_OK);
                     finish();
-                });
-            } catch (Exception ignored) {
-                // stay on the page; the user can still cancel
-            }
+                } catch (Exception ignored) {
+                    // stay on the page; the user can still cancel or retry
+                    if (cookie.equals(lastAttempt)) lastAttempt = null;
+                }
+            });
         }).start();
     }
 
@@ -148,6 +154,7 @@ public class LoginActivity extends Activity {
             connection.setRequestProperty("Cookie", cookie);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(8000);
             return connection.getResponseCode() == 200;

@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 // Release signing key lives outside version control: android/hwfee-release.jks plus
-// android/keystore.properties. Without them the release build falls back to debug signing.
+// android/keystore.properties. Without them the release APK remains unsigned.
 def keystorePropsFile = rootProject.file("keystore.properties")
 def keystoreProps = new Properties()
 if (keystorePropsFile.exists()) {
@@ -42,6 +42,12 @@ android {
             if (hasKeystore) signingConfig signingConfigs.release
         }
     }
+    testOptions {
+        unitTests.all {
+            // The host JDK strips Origin by default; Android's native transport sends it.
+            systemProperty 'sun.net.http.allowRestrictedHeaders', 'true'
+        }
+    }
 }
 
 repositories {
@@ -57,6 +63,9 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.json:json:20240303"
+    testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+    testImplementation "org.robolectric:robolectric:4.14.1"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

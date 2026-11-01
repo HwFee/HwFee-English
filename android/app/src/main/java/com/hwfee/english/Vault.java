@@ -59,7 +59,8 @@ public final class Vault {
     }
 
     public static synchronized boolean has(Context context, String name) {
-        return prefs(context).contains(name);
+        String value = get(context, name);
+        return value != null && !value.isEmpty();
     }
 
     public static synchronized void remove(Context context, String name) {

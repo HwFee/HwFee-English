@@ -2,7 +2,65 @@
 
 One Android app for two personal tools: **cherina-pod 精听** lessons and a **扇贝阅读** daily reader.
 
-**State: every backend milestone is done and verified on a device. The UI/UX pass is the next task** — planned as a `/claude-dashboard` session, since all the plumbing behind the screens already works.
+**Current state (2026-11-01): the backend reliability pass is implemented and host-tested.**
+The UI/UX pass is still the next product task. The original Android 15 observations below describe
+the baseline commit `08c152e`; this continuation does not claim a new emulator or phone run.
+
+## Backend continuation — 2026-11-01
+
+User preference: assign small, bounded tasks to **GPT-6 Luna** subagents. The lead owns the main
+backend implementation, review, and integration. This continuation used that split.
+
+- **Imports preserve existing lessons.** Extraction streams under a 2 GiB total / 512 MiB per-file
+  limit, reserves 32 MiB of free storage, and bounds entry count and nesting. Both folder and
+  self-contained HTML layouts still work. Metadata is prepared before publishing; replacements
+  retain a backup until the new directory is installed. Failed publication rolls back, and startup
+  recovers interrupted replacements and clears abandoned staging directories. Dot-only IDs cannot
+  address the library root or app files.
+- **Lesson deletion and serving stay inside the library.** Removal validates a direct lesson ID
+  and does not recurse through symlinks. Serving preserves literal `+` and `%` filenames, checks
+  canonical containment including directory-default `player.html`, safely embeds metadata JSON,
+  and ignores unsupported multi-range requests instead of returning a false 416.
+- **Translation has a tested success path.** Native `LlmClient` applies defaults, bounds responses,
+  refuses redirects, closes failed connections, and handles malformed/empty/truncated/refused
+  provider replies without exposing keys or provider error bodies. Android config requires HTTPS.
+  Omitted settings preserve saved values; blank base/model fields explicitly restore defaults.
+  The success path uses a local mock provider; a real paid-provider key is still required for live
+  confirmation.
+- **Shanbay failures have stable codes.** `ShanbayClient` validates cookie headers and relative
+  paths, keeps the production origin fixed, closes connections, bounds response size, and preserves
+  DELETE bodies and 204 responses. HTTP redirects are blocked. Authentication errors remain visible.
+- **Offline reading now works.** A validated last successful article and learning-count snapshot
+  can be loaded after a network failure, retaining its original date and marked `离线缓存`.
+  Authentication and data-readiness errors do not silently become offline results. The optional
+  matching-article source still falls back to the latest article when no match is ready.
+- **Vocabulary refreshes publish only complete results.** Pagination no longer stops at six pages;
+  partial failures retain the previous complete cache. Cached entries are validated, duplicate word
+  and inflection masks are merged, and both wordbook additions and removals refresh highlights.
+- **Playback lifecycle is corrected.** Idle page reports and idle sleep requests cannot create a
+  foreground playback session. Explicit Play is idempotent, Stop pauses the WebView, and a new play
+  report can restore a stopped service. Notifications support API 23. A bounded partial wake lock
+  keeps a pending sleep timer on time with the screen off, and is released on expiry, cancellation,
+  or service destruction. An empty service restart is not sticky.
+- **Login state is truthful.** Undecryptable restored secrets are not reported as connected. A
+  cancelled login cannot save a late authentication result; failed probes can retry, and redirect
+  responses cannot masquerade as authenticated success.
+- **Builds are portable.** Java 21 comes from the local environment instead of a committed Windows
+  path. `npm test` runs the Node data-layer tests and native/Robolectric tests; see `docs/DEV.md`.
+
+Validation: **48 native JVM/Robolectric tests and 16 Node tests pass**, with no skipped tests.
+Android lint passes with **zero errors and 16 nonblocking warnings** (template assets, dependency
+update suggestions, required WebView JavaScript, and storage API advice). The debug APK builds,
+its signature verifies, and all 20 packaged web files match `web/` exactly. The existing device-test
+source also compiles, with its scaffold package assertion corrected to `com.hwfee.english`.
+
+Artifact: `android/app/build/outputs/apk/debug/app-debug.apk` (debug-signed, 4.0 MiB).
+SHA-256: `3186c924e8f0e0f188e42856fcc02f254149539bcd0908be81fa28994c5cb2a1`.
+Backend continuation branch: `backend/reliability`.
+
+No Shanbay session, live LLM key, release signing key, or attached device is available in this
+checkout. Real-phone background audio/lock-screen behavior, live translation, and a signed release
+upgrade remain verification steps. The debug APK does not use the existing release signing key.
 
 ---
 
@@ -59,7 +117,13 @@ HwFee-English/
       LessonWebViewClient.java one place where those two routes hook into Capacitor
       LessonsPlugin.java       import / list / remove
       ShanbayPlugin.java       cookie-authed HTTP against apiv3
-      LlmPlugin.java           OpenAI-compatible translation
+      LlmPlugin.java           vault/config bridge for OpenAI-compatible translation
+      LlmClient.java           bounded, tested translation transport
+      ShanbayClient.java       bounded, tested cookie-authenticated transport
+      LessonArchive.java       streaming ZIP extraction with limits
+      LessonInstaller.java     publish / rollback / interrupted-import recovery
+      LessonPath.java          safe lesson IDs and recursive removal
+      LessonRequestSupport.java path, range and embedded JSON helpers
       AudioPlugin.java         foreground service control
       PlaybackService.java     MediaSession + notification + sleep timer
       AudioBridge.java         the line between service and WebView
@@ -144,7 +208,8 @@ JS modules in `web/read/`:
 2. **Background audio with a WebView depends on the ROM.** It works with the foreground service on the A15 emulator. If a specific device still pauses it, the fallback is driving audio with ExoPlayer behind the same UI — that was an explicitly rejected option, so it would be a decision, not a refactor.
 3. **One lesson's audio fails to decode at 68.8 s** on the emulator (`PIPELINE_ERROR_DECODE`), which froze playback and briefly looked like a backgrounding bug. Range serving was correct throughout; it reads as an emulator codec limitation, but it has not been reproduced on real hardware.
 4. **Cookie capture had a real trap**: Shanbay sets an `auth_token`-shaped cookie *before* any credentials are entered, so the first implementation "succeeded" in 2 s on a guest token. Capture now verifies against `/bayuser/user` and refuses to overwrite a working session with an unproven one.
-5. **The translation path has never produced a real translation** — no key was available. Everything up to and including the 401 mapping is verified.
+5. **Live translation still needs a real key.** Mock-provider success, malformed responses, timeouts,
+   and failure mapping are covered by automated tests; no live paid-provider call was made here.
 
 ---
 
@@ -153,7 +218,7 @@ JS modules in `web/read/`:
 - **Capacitor shell + native plugins, not a native rewrite.** Both UIs survive nearly verbatim; the native layer exists where a WebView cannot go.
 - **One origin for everything.** Lessons, shell and reader all load from `https://localhost`, which is what makes the shared localStorage (streak, saved words) work.
 - **No Shanbay translate service.** It is metered (`remaining_percent`, `quota_exceeded`) and VIP-gated (`403`); the app uses a personal OpenAI-compatible key instead.
-- **Cookie and LLM key never reach the WebView.** HTTP happens in Kotlin, with the secrets read from the Keystore at call time.
+- **Cookie and LLM key are never returned to the WebView.** HTTP happens in native Java, with the secrets read from the Keystore at call time.
 - **Lesson files on disk are never modified.** Library data and the playback shim are injected while serving.
 - **Wordbook writes need `business_id: 1`.** Without it `/wordscollection/words` returns HTTP 400.
 - **Iframe plugin calls must go through `window.top.Capacitor`.** An iframe receives its own injected bridge whose calls never resolve — this cost an afternoon once and is worth remembering.

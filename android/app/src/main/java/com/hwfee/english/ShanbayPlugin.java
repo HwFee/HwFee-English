@@ -11,13 +11,6 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-
 /**
  * Shanbay transport.
  *
@@ -32,13 +25,15 @@ import java.nio.charset.StandardCharsets;
 public class ShanbayPlugin extends Plugin {
 
     private static final String COOKIE = "shanbay.cookie";
-    private static final String BASE = "https://apiv3.shanbay.com";
+    private final ShanbayClient client = new ShanbayClient();
 
     @PluginMethod
     public void setCookie(PluginCall call) {
         String cookie = call.getString("cookie");
-        if (cookie == null || !cookie.contains("auth_token=")) {
-            call.reject("未找到 auth_token，请粘贴扇贝请求的 Cookie");
+        try {
+            ShanbayClient.validateCookie(cookie);
+        } catch (ShanbayClient.ShanbayException error) {
+            call.reject(error.getMessage(), error.code);
             return;
         }
         try {
@@ -47,7 +42,7 @@ public class ShanbayPlugin extends Plugin {
             out.put("saved", true);
             call.resolve(out);
         } catch (Exception error) {
-            call.reject("保存登录态失败：" + error.getMessage());
+            call.reject("保存登录态失败，请稍后重试", "STORAGE_ERROR");
         }
     }
 
@@ -81,87 +76,34 @@ public class ShanbayPlugin extends Plugin {
         call.resolve(out);
     }
 
-    /** Any authenticated GET/POST against apiv3; returns the response body verbatim. */
+    /** Authenticated Shanbay request; successful response text is returned verbatim. */
     @PluginMethod
     public void request(PluginCall call) {
         String path = call.getString("path");
-        if (path == null || !path.startsWith("/")) {
-            call.reject("path 必须以 / 开头");
+        String cookie;
+        try {
+            cookie = Vault.get(getContext(), COOKIE);
+        } catch (Exception error) {
+            call.reject("无法读取扇贝登录态，请重新连接", "STORAGE_ERROR");
             return;
         }
-        String cookie = Vault.get(getContext(), COOKIE);
         if (cookie == null) {
-            call.reject("尚未连接扇贝");
+            call.reject("尚未连接扇贝", "NO_SESSION");
             return;
         }
         String method = call.getString("method", "GET");
         JSObject body = call.getObject("body");
         getBridge().execute(() -> {
             try {
-                String text = http(method, path, body == null ? null : body.toString(), cookie);
+                String text = client.request(method, path, body == null ? null : body.toString(), cookie);
                 JSObject out = new JSObject();
                 out.put("body", text);
                 call.resolve(out);
+            } catch (ShanbayClient.ShanbayException error) {
+                call.reject(error.getMessage(), error.code);
             } catch (Exception error) {
-                call.reject(error.getMessage());
+                call.reject("网络连接失败，请检查网络后重试", "NETWORK_ERROR");
             }
         });
-    }
-
-    // ------------------------------------------------------------------ http
-
-    private String http(String method, String path, String body, String cookie) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(BASE + path).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(20000);
-        connection.setReadTimeout(30000);
-        connection.setInstanceFollowRedirects(false);
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("Cookie", cookie);
-        connection.setRequestProperty("Origin", "https://web.shanbay.com");
-        connection.setRequestProperty("Referer", "https://web.shanbay.com/");
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-        connection.setRequestProperty("Accept-Encoding", "identity");
-        String csrf = csrfOf(cookie);
-        if (csrf != null) connection.setRequestProperty("X-CSRFToken", csrf);
-
-        if (body != null) {
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json");
-            try (OutputStream out = connection.getOutputStream()) {
-                out.write(body.getBytes(StandardCharsets.UTF_8));
-            }
-        }
-
-        int status = connection.getResponseCode();
-        InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String text = stream == null ? "" : readAll(stream);
-        connection.disconnect();
-
-        if (status == 204) return "{}";
-        if (status == 401) throw new Exception("登录已过期，请重新连接扇贝");
-        if (status == 403) throw new Exception("请求被拒绝，请在扇贝网页确认登录状态");
-        if (status == 412) throw new Exception("今日学习数据尚未就绪，请先打开官方学习页");
-        if (status == 429) throw new Exception("请求太频繁，请稍后再试");
-        if (status >= 400) throw new Exception("扇贝接口返回 HTTP " + status + "：" + path);
-        return text;
-    }
-
-    private static String csrfOf(String cookie) {
-        for (String part : cookie.split(";")) {
-            String[] pair = part.trim().split("=", 2);
-            if (pair.length == 2 && pair[0].equals("csrftoken")) return pair[1];
-        }
-        return null;
-    }
-
-    private static String readAll(InputStream in) throws Exception {
-        try (InputStream stream = in) {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            byte[] chunk = new byte[32 * 1024];
-            int read;
-            while ((read = stream.read(chunk)) > 0) buffer.write(chunk, 0, read);
-            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-        }
     }
 }

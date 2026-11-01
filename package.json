@@ -12,7 +12,11 @@
   },
   "scripts": {
     "sync": "cap sync android",
-    "apk": "cd android && gradlew.bat assembleDebug",
-    "apk:release": "cd android && gradlew.bat assembleRelease"
+    "apk": "node tools/android-build.mjs assembleDebug",
+    "apk:release": "node tools/android-build.mjs assembleRelease",
+    "test": "npm run test:web && node tools/android-build.mjs :app:testDebugUnitTest",
+    "test:web": "node --test",
+    "test:android": "node tools/android-build.mjs :app:testDebugUnitTest",
+    "lint:android": "node tools/android-build.mjs :app:lintDebug"
   }
 }
