@@ -1,0 +1,644 @@
+<style>
+  /* Both tabs share cherina-pod's tokens and one layout skeleton. */
+  .hw { --bg:#F5F5F7; --surface:#FFFFFF; --ink:#1D1D1F; --ink2:#6E6E73; --ink3:#AEAEB2;
+        --line:#E5E5EA; --track:rgba(118,118,128,.12); --acc:#0071E3; --acc-soft:rgba(0,113,227,.10);
+        --acc-ink:#0066CC; --fire:#FF6B00; --ease:cubic-bezier(.22,.8,.24,1);
+        --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC",
+              "Microsoft YaHei", sans-serif;
+        font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+  .hw h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: clamp(1.7rem, 3.4vw, 2.4rem);
+           letter-spacing: -.01em; margin: .2rem 0 .5rem; }
+  .hw h2 { font-size: 1rem; font-weight: 500; margin: 0 0 .2rem; }
+  .hw .kicker { margin: 0; font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: var(--color-fg-muted); }
+  .hw .lead { margin: 0 0 1.6rem; max-width: 48rem; color: var(--color-fg-muted); line-height: 1.6; }
+  .hw .sub { margin: 0 0 1rem; font-size: .82rem; color: var(--color-fg-muted); }
+  .hw section { margin-bottom: 2.2rem; }
+  .hw .grid3 { display: grid; gap: var(--cds-gap-md, 1rem);
+               grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); }
+  .hw figure { margin: 0; }
+  .hw figcaption { font-size: .8rem; font-weight: 500; margin-bottom: .5rem; display: flex; gap: .4rem; align-items: baseline; }
+  .hw figcaption span { font-weight: 400; color: var(--color-fg-muted); font-size: .72rem; }
+  .hw .note { margin: .55rem 0 0; font-size: .74rem; line-height: 1.55; color: var(--color-fg-muted); }
+
+  /* ---------- the shared skeleton, drawn once ---------- */
+  .hw .skel { display: flex; flex-wrap: wrap; gap: .5rem; align-items: stretch; margin-top: .7rem; }
+  .hw .sk { flex: 1 1 9rem; border: 1px dashed var(--color-border-line); border-radius: 10px; padding: .55rem .65rem; }
+  .hw .sk b { display: block; font-size: .78rem; font-weight: 500; }
+  .hw .sk span { display: block; font-size: .7rem; color: var(--color-fg-muted); margin-top: .15rem; line-height: 1.5; }
+
+  /* translation popover, anchored to the pressed sentence */
+  .hw .sent-line { margin: 6px 0 0; }
+  .hw .sent-line mark { background: var(--acc-soft); color: var(--acc-ink); border-radius: 3px; padding: 0 2px; }
+  .hw .pop { position: relative; margin: 9px 0 0 6px; background: var(--surface); border-radius: 14px;
+             padding: 7px 9px; border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.12); max-width: 88%; }
+  .hw .pop::before { content: ""; position: absolute; top: -5px; left: 15px; width: 8px; height: 8px;
+                     background: var(--surface); transform: rotate(45deg);
+                     border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+  .hw .pop .pk { font-size: 7px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); }
+  .hw .pop .pt { font-size: 9.5px; line-height: 1.55; color: var(--ink); margin-top: 2px; }
+  .hw .pop .pa { margin-top: 5px; font-size: 8px; color: var(--ink2); }
+  .hw .pop.word { max-width: 78%; }
+  .hw .pop .pb { display: inline-block; margin-top: 5px; font-size: 8px; font-weight: 600; padding: 3px 9px;
+                 border-radius: 20px; background: var(--acc); color: #fff; }
+  .hw .pop .pb.done { background: transparent; color: var(--ink); border: 1px solid var(--ink3); }
+
+  /* bottom tab switch */
+  .hw .tabbar { flex: none; display: flex; gap: 4px; margin: 8px -14px 0; padding: 6px 14px 14px;
+                border-top: 1px solid var(--line); background: var(--bg); }
+  .hw .tb { flex: 1; text-align: center; font-size: 9px; font-weight: 500; color: var(--ink2); padding: 3px 0; }
+  .hw .tb.on { color: var(--acc); font-weight: 600; }
+
+  /* article cover + recent cards, mirroring the lesson cards */
+  .hw .hero-top { display: flex; gap: 8px; align-items: flex-start; }
+  .hw .coverimg { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex: none; }
+  .hw .rlist { display: flex; flex-direction: column; gap: 6px; }
+  .hw .rcard { display: flex; gap: 8px; align-items: center; background: var(--surface); border-radius: 12px;
+               padding: 7px 8px; box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
+  .hw .rth { width: 28px; height: 28px; border-radius: 7px; flex: none;
+             background: linear-gradient(150deg,#cfd8e3,#7f97af); }
+  .hw .rt2 { flex: 1; font-size: 9.5px; line-height: 1.25; color: var(--ink); min-width: 0;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hw .rd2 { font-size: 7.5px; color: var(--ink3); flex: none; font-variant-numeric: tabular-nums; }
+  .hw .rs2 { font-size: 7.5px; font-weight: 600; color: var(--acc); flex: none; }
+
+  /* flip diagram */
+  .hw .flips { display: grid; gap: var(--cds-gap-md, 1rem);
+               grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+  .hw .slice { position: relative; height: 118px; border-radius: 12px; background: var(--bg);
+               border: 1px solid var(--line); padding: 9px; overflow: hidden; font-family: var(--ui); }
+  .hw .slice p { margin: 0; font-size: 8.5px; line-height: 1.6; color: var(--ink2); }
+  .hw .slice .hl2 { background: var(--acc-soft); color: var(--acc-ink); border-radius: 3px; }
+  .hw .slice .pv { position: absolute; left: 9px; right: 9px; background: var(--surface); border: 1px solid var(--line);
+                   border-radius: 10px; padding: 5px 7px; font-size: 8.5px; color: var(--ink);
+                   box-shadow: 0 4px 14px rgba(0,0,0,.10); }
+  .hw .slice .pv.below { top: 62px; }
+  .hw .slice .pv.above { bottom: 62px; }
+
+  /* ---------- phone artboard ---------- */
+  .hw .phone { position: relative; padding: 16px 14px 0; border-radius: 30px; border: 1px solid var(--line);
+               background: var(--bg); box-shadow: 0 10px 30px rgba(0,0,0,.08); overflow: hidden;
+               aspect-ratio: 390 / 760; display: flex; flex-direction: column; font-family: var(--ui); }
+  .hw .phone::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 34%; height: 4px;
+                      transform: translateX(-50%); border-radius: 2px; background: rgba(0,0,0,.16); }
+  .hw .scr { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 9px; color: var(--ink); }
+  .hw .micro { font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin: 0; }
+  .hw .ttl { font-size: 17px; font-weight: 700; letter-spacing: -.03em; margin: 0; color: var(--ink); }
+  .hw .bar { display: flex; align-items: center; justify-content: space-between; }
+  .hw .dash-led { font-size: 16px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
+  .hw .iconbtn { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+                 background: var(--track); color: var(--ink2); font-size: 12px; line-height: 1; }
+
+  .hw .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .hw .tile { border-radius: 14px; padding: 8px 9px; background: var(--surface);
+              box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
+  .hw .tile b { display: block; font-size: 16px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); }
+  .hw .tile b i { font-style: normal; font-size: 8px; font-weight: 500; color: var(--ink2); margin-left: 2px; }
+  .hw .tile b.fire { color: var(--fire); }
+  .hw .tile b.acc { color: var(--acc); }
+  .hw .tile em { font-style: normal; font-size: 8.5px; color: var(--ink2); font-weight: 500; }
+
+  .hw .hero { border-radius: 16px; padding: 9px; display: flex; gap: 9px; background: var(--surface);
+              box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
+  .hw .hero.tall { flex-direction: column; gap: 4px; }
+  .hw .cover { width: 46px; height: 46px; border-radius: 10px; flex: none; position: relative;
+               background: linear-gradient(150deg,#b8c6d6,#5f7d9b 72%); }
+  .hw .cover::after { content: "E"; position: absolute; inset: 0; display: grid; place-items: center;
+                      font-size: 18px; font-weight: 700; color: #fff; }
+  .hw .hero .hl { font-size: 8.5px; font-weight: 600; color: var(--acc); }
+  .hw .hero .ht { font-size: 11px; font-weight: 600; line-height: 1.25; margin-top: 1px; color: var(--ink); }
+  .hw .hero .hp { font-size: 8.5px; color: var(--ink2); margin-top: 2px; }
+  .hw .hero .cta { margin-top: 6px; font-size: 9px; font-weight: 600; text-align: center; border-radius: 20px;
+                   padding: 5px; background: var(--acc); color: #fff; }
+  .hw .chips { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .hw .chip { font-size: 8px; padding: 1px 6px; border-radius: 20px; color: var(--ink2); background: var(--track); }
+  .hw .lrow { display: flex; gap: 8px; align-items: center; padding-top: 7px; border-top: 1px solid var(--line); }
+  .hw .lrow .mini { width: 26px; height: 26px; border-radius: 7px; flex: none;
+                    background: linear-gradient(150deg,#c9d5e2,#6f8ba8); }
+  .hw .lrow .lt { font-size: 9.5px; line-height: 1.3; color: var(--ink); }
+
+  /* recent-article rows, same rhythm as the lesson rows */
+  .hw .rrow { display: flex; gap: 8px; align-items: baseline; padding-top: 7px; border-top: 1px solid var(--line); }
+  .hw .rrow .rd { font-size: 8px; color: var(--ink3); width: 34px; flex: none; font-variant-numeric: tabular-nums; }
+  .hw .rrow .rt { font-size: 9.5px; line-height: 1.3; color: var(--ink); flex: 1;
+                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hw .rrow .rs { font-size: 7.5px; color: var(--acc); flex: none; }
+
+  /* read artboard */
+  .hw .masthead { display: flex; align-items: baseline; gap: 7px; }
+  .hw .masthead b { font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--ink); }
+  .hw .masthead span { font-size: 7px; letter-spacing: .16em; color: var(--ink3); text-transform: uppercase; }
+  .hw .paper { border-radius: 16px; background: var(--surface); padding: 10px; box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
+  .hw .paper .art-t { font-size: 12.5px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; color: var(--ink); }
+  .hw .paper .art-cn { font-size: 8.5px; color: var(--ink2); margin-top: 3px; }
+  .hw .body-text { font-family: var(--font-anthropic-serif); font-size: 9.5px; line-height: 1.75; color: var(--ink);
+                   margin: 7px 0 0; }
+  .hw .hl-today { border-bottom: 1px dotted var(--ink3); }
+  .hw .hl-book { background: var(--acc-soft); color: var(--acc-ink); border-radius: 2px; }
+
+  /* sheets */
+  .hw .sheet { margin-top: 7px; border-radius: 16px 16px 0 0; background: var(--surface); padding: 8px 9px;
+               box-shadow: 0 -1px 0 rgba(0,0,0,.06); }
+  .hw .sheet .sk2 { font-size: 7px; letter-spacing: .14em; color: var(--ink3); text-transform: uppercase; }
+  .hw .sheet .sv { font-size: 12px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
+  .hw .sheet .sd { font-size: 8.5px; color: var(--ink2); line-height: 1.5; }
+  .hw .sheet .sb { margin-top: 6px; font-size: 9px; font-weight: 600; text-align: center; border-radius: 20px; padding: 5px;
+                   background: var(--acc); color: #fff; }
+  .hw .sheet .sent { font-family: var(--font-anthropic-serif); font-size: 10px; color: var(--ink); line-height: 1.5; }
+  .hw .sheet .tr { margin-top: 4px; font-size: 10px; color: var(--ink); line-height: 1.6; }
+
+  /* settings artboard */
+  .hw .setbar { display: flex; justify-content: space-between; align-items: baseline; }
+  .hw .card-s { border-radius: 16px; padding: 9px; background: var(--surface); box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
+  .hw .card-s h3 { margin: 0 0 4px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); }
+  .hw .card-s p { margin: 0 0 6px; font-size: 9.5px; color: var(--ink2); }
+  .hw .card-s p b { color: var(--ink); font-weight: 600; }
+  .hw .card-s .row2 { display: flex; gap: 6px; }
+  .hw .btn-s { flex: 1; font-size: 9px; font-weight: 500; text-align: center; padding: 5px 0; border-radius: 20px;
+               background: var(--track); color: var(--ink); }
+  .hw .btn-s.pri { background: var(--acc); color: #fff; }
+  .hw .field-s { border-radius: 9px; padding: 5px 7px; font-size: 8px; color: var(--ink3);
+                 background: var(--track); margin-bottom: 5px; }
+
+  /* ---------- tables and cards ---------- */
+  .hw .card { background: var(--color-panel); border: 1px solid var(--color-border-line);
+              border-radius: var(--cds-radius, 12px); padding: var(--cds-pad-lg, 1.1rem); }
+  .hw .tw { max-height: 22rem; overflow: auto; border-top: 1px solid var(--color-border-line); margin-top: .7rem; }
+  .hw table { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  .hw th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: 500;
+           padding: .45rem .5rem; border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .hw th button { all: unset; cursor: pointer; display: inline-flex; gap: .3rem; align-items: center; }
+  .hw th button:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; border-radius: 3px; }
+  .hw td { padding: .38rem .5rem; border-bottom: 1px solid color-mix(in srgb, var(--color-border-line) 55%, transparent); }
+  .hw td.num { text-align: right; }
+  .hw .bar-cell { position: relative; }
+  .hw .bar-cell i { position: absolute; left: .5rem; right: .5rem; bottom: 2px; height: 3px; border-radius: 2px;
+                    background: var(--color-fg-muted); opacity: .22; transform-origin: left; }
+  .hw .search { margin-top: .2rem; width: 100%; max-width: 18rem; padding: .45rem .6rem; font: inherit; font-size: .8rem;
+                border: 1px solid var(--color-border-line); border-radius: 8px; background: var(--color-bg); color: var(--color-fg); }
+
+  .hw .vocab { display: flex; flex-direction: column; gap: .45rem; margin-top: .6rem; }
+  .hw .vrow { display: grid; grid-template-columns: 5.2rem 1fr auto; gap: .6rem; align-items: center; font-size: .8rem; }
+  .hw .vtrack { height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--color-border-line) 45%, transparent); overflow: hidden; }
+  .hw .vfill { height: 100%; border-radius: 5px; background: #0071E3; opacity: .78; }
+
+  .hw .swatches { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+  .hw .sw { width: 6.4rem; }
+  .hw .sw i { display: block; height: 2.1rem; border-radius: 8px; border: 1px solid rgba(0,0,0,.06); }
+  .hw .sw span { display: block; font-size: .68rem; color: var(--color-fg-muted); margin-top: .2rem; }
+  .hw ul.q { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .82rem; line-height: 1.75; color: var(--color-fg-muted); }
+  .hw code { font-size: .76rem; background: color-mix(in srgb, var(--color-border-line) 40%, transparent);
+             padding: .05rem .3rem; border-radius: 4px; }
+</style>
+
+<div class="hw">
+  <header>
+    <p class="kicker">HwFee English · Android</p>
+    <h1>界面设计草稿</h1>
+    <p class="lead">精听 tab 保持 cherina-pod 原样，不动。只改两个：词间用它的 token 和骨架重做——日期、标题、四个数、今天这一篇、近几篇，右上角刷新；设置用同一套卡片。精听那张图放着只为对照。</p>
+  </header>
+
+  <section>
+    <h2>骨架</h2>
+    <p class="sub">从 cherina-pod 的课程库页搬过来的结构，词间和设置照着填。</p>
+    <div class="card">
+      <div class="skel">
+        <div class="sk"><b>① 顶行</b><span>左：日期 · 右：一个动作（精听＝导入，词间＝刷新）</span></div>
+        <div class="sk"><b>② 标题</b><span>我的精听 / 我的精读，26px 粗体，左对齐</span></div>
+        <div class="sk"><b>③ 四个数</b><span>两行两列的白色小卡，数字用粗体</span></div>
+        <div class="sk"><b>④ 主卡</b><span>精听＝继续这一课；词间＝今天这一篇。蓝底按钮在卡里</span></div>
+        <div class="sk"><b>⑤ 列表</b><span>课程库 / 近几篇，同样的行高与分隔线</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>三个界面</h2>
+    <p class="sub">左一是精听，原样不动，只为对照；右边两个是要改的。灰色破折号是 app 本地状态，还没接进来。</p>
+    <div class="grid3">
+
+      <figure>
+        <figcaption>精听 <span>原样，不动</span></figcaption>
+        <div class="phone">
+          <div class="scr">
+            <div class="bar">
+              <p class="micro" data-source="today" data-field="date" data-row="0">—</p>
+              <span class="iconbtn" title="导入课程">⤓</span>
+            </div>
+            <p class="ttl">我的精听</p>
+            <div class="tiles">
+              <div class="tile"><em>连续</em><b class="fire">—<i>天</i></b></div>
+              <div class="tile"><em>今天</em><b>—<i>分钟</i></b></div>
+              <div class="tile"><em>累计完成</em><b>—<i>段</i></b></div>
+              <div class="tile"><em>待复习</em><b class="acc">—<i>句</i></b></div>
+            </div>
+            <div class="hero">
+              <div class="cover"></div>
+              <div>
+                <div class="hl">继续这一课</div>
+                <div class="ht" id="hw-hero-title">—</div>
+                <div class="hp" id="hw-hero-podcast">—</div>
+                <div class="chips">
+                  <span class="chip"><span data-source="lessons" data-field="minutes" data-row="0">—</span> 分钟</span>
+                  <span class="chip"><span data-source="lessons" data-field="wpm" data-row="0">—</span> 词/分</span>
+                  <span class="chip"><span data-source="lessons" data-field="segments" data-row="0">—</span> 段</span>
+                </div>
+              </div>
+            </div>
+            <p class="micro">课程库</p>
+            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row2">—</div></div>
+            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row3">—</div></div>
+            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row4">—</div></div>
+          </div>
+        </div>
+          <div class="tabbar"><span class="tb on">精听</span><span class="tb">阅读</span><span class="tb">设置</span></div>
+        <p class="note">这个 tab 现在就能用：课程库、播放页都是 cherina-pod 自己生成的，这次一行不改。</p>
+      </figure>
+
+      <figure>
+        <figcaption>词间 <span>同一骨架，刷新在顶行</span></figcaption>
+        <div class="phone">
+          <div class="scr">
+            <div class="bar">
+              <p class="micro" data-source="today" data-field="date" data-row="0">—</p>
+              <span class="iconbtn" title="刷新今天的一篇">↻</span>
+            </div>
+            <p class="ttl">我的精读</p>
+            <div class="tiles">
+              <div class="tile"><em>今日新词</em><b><span data-source="today" data-field="new_done" data-row="0">—</span><i>/<span data-source="today" data-field="new_total" data-row="0">—</span></i></b></div>
+              <div class="tile"><em>复习</em><b><span data-source="today" data-field="review_done" data-row="0">—</span><i>/<span data-source="today" data-field="review_total" data-row="0">—</span></i></b></div>
+              <div class="tile"><em>生词本</em><b class="acc"><span data-source="vocab" data-field="words" data-where="category=wordbook">—</span><i>词</i></b></div>
+              <div class="tile"><em>已掌握</em><b><span data-source="vocab" data-field="words" data-where="category=learned">—</span><i>词</i></b></div>
+            </div>
+            <div class="hero tall">
+              <div class="hero-top">
+                <img class="coverimg" src="data:image/jpeg;base64,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" alt="今天这篇的封面">
+                <div>
+                  <div class="hl">今天的一篇 · <span data-source="today" data-field="book" data-row="0">—</span></div>
+                  <div class="ht" id="hw-art-title" style="font-size:11.5px">—</div>
+                </div>
+              </div>
+              <div class="hp" id="hw-art-cn">—</div>
+              <div class="chips">
+                <span class="chip"><span data-source="article" data-field="words" data-row="0">—</span> 词</span>
+                <span class="chip"><span data-source="article" data-field="paragraphs" data-row="0">—</span> 段</span>
+                <span class="chip">约 <span data-source="article" data-field="minutes" data-row="0">—</span> 分钟</span>
+              </div>
+              <div class="cta">开始读这一篇</div>
+            </div>
+            <p class="micro">近几篇</p>
+            <div class="rlist" id="hw-recent" data-source="recent"></div>
+          </div>
+        </div>
+          <div class="tabbar"><span class="tb">精听</span><span class="tb on">阅读</span><span class="tb">设置</span></div>
+        <p class="note">顶上那个 ↻ 是刷新：抓今天的短文，顺带刷新词表数字。列表是已抓回来过的篇目，今天那行标「今天」，点一行就打开旧文。</p>
+      </figure>
+
+      <figure>
+        <figcaption>词间 · 交互 <span>长按与点词</span></figcaption>
+        <div class="phone">
+          <div class="scr">
+            <div class="masthead"><b>词间</b><span>Between the words</span></div>
+            <div class="paper">
+              <div class="art-t" id="hw-art-title-2">—</div>
+              <div class="art-cn" id="hw-art-cn-2">—</div>
+              <p class="body-text" id="hw-excerpt">—</p>
+              <p class="sent-line body-text" style="margin-top:4px"><mark>Oysters were once food for the poor.</mark></p>
+              <div class="pop">
+                <div class="pk">译文 · 长按句子</div>
+                <div class="pt">生蚝曾经是穷人吃的食物。</div>
+                <div class="pa">点浮层外关闭 · 不压住被翻的句子</div>
+              </div>
+              <p class="sent-line body-text" style="margin-top:10px">Ancient Romans also <mark>dined</mark> on snails.</p>
+              <div class="pop word">
+                <div class="pk">Word · 点词</div>
+                <div class="pt"><b>dined</b> <span style="color:var(--ink2);font-size:8.5px">v. 进餐；用饭（dine 的过去式）</span></div>
+                <div class="pb done">已在生词本 · 移除</div>
+              </div>
+            </div>
+          </div>
+        </div>
+          <div class="tabbar"><span class="tb">精听</span><span class="tb on">阅读</span><span class="tb">设置</span></div>
+        <p class="note">两个手势都是贴着文字的浮层：长按句子=整句翻译，点单词=释义加生词本按钮。浮层都避开被点的那一句或那个词，同一个时刻只开一个。</p>
+      </figure>
+
+      <figure>
+        <figcaption>设置 <span>同一套 token</span></figcaption>
+        <div class="phone">
+          <div class="scr">
+            <div class="setbar"><span class="dash-led">设置</span><span style="font-size:9.5px;color:var(--acc);font-weight:500">完成</span></div>
+            <div class="card-s">
+              <h3>扇贝</h3>
+              <p>已连接 · <b data-source="today" data-field="book" data-row="0">—</b></p>
+              <div class="row2"><div class="btn-s pri">网页登录</div><div class="btn-s">粘贴 Cookie</div></div>
+            </div>
+            <div class="card-s">
+              <h3>翻译</h3>
+              <p>已配置 · deepseek-chat</p>
+              <div class="field-s">sk-············</div>
+              <div class="row2"><div class="btn-s pri">保存</div><div class="btn-s">清除密钥</div></div>
+            </div>
+            <div class="card-s">
+              <h3>课程库</h3>
+              <p><span data-source="lessonTotals" data-field="value" data-where="metric=课程">—</span> 节课 · <span data-source="lessonTotals" data-field="value" data-where="metric=总时长">—</span> 分钟</p>
+            </div>
+          </div>
+        </div>
+          <div class="tabbar"><span class="tb">精听</span><span class="tb">阅读</span><span class="tb on">设置</span></div>
+        <p class="note">省掉列表，其余照骨架：卡片十六圆角、白底、0.5px 描边。</p>
+      </figure>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>浮层的位置规则</h2>
+    <p class="sub">句子和单词用同一套规则：先试下方，放不下就翻到上方，被点的那一段永远保持可见。</p>
+    <div class="card">
+      <div class="flips">
+        <div>
+          <p class="sub" style="margin-bottom:.45rem">句子在上半屏 → 浮层出现在句子下方</p>
+          <div class="slice">
+            <p>To most people, Provence is a region of France. <span class="hl2">Increasingly, it is also a lifestyle brand.</span></p>
+            <div class="pv below">越来越多人还把它当成一种生活方式品牌。</div>
+          </div>
+        </div>
+        <div>
+          <p class="sub" style="margin-bottom:.45rem">句子靠近底部 → 浮层翻到句子上面</p>
+          <div class="slice">
+            <p style="position:absolute;left:9px;right:9px;bottom:9px">The word "Provence" evokes the sound of cicadas and the smell of pine. <span class="hl2">Few other places carry so much meaning.</span></p>
+            <div class="pv above">少有其他地方承载这么多含义。</div>
+          </div>
+        </div>
+      </div>
+      <ul class="q">
+        <li>水平方向从被点文字的左边缘开始，超出一边就往回收，始终留一屏边距。</li>
+        <li>词的浮层比句子的窄（最多七成宽），同样先试下方再翻上方；一个时刻只开一个浮层，点别处就关。</li>
+        <li>两边都放不下时，浮层压到旁边的段落上，但被点的那一句或那个词仍在视野里，点浮层外即关。</li>
+        <li>滚动文章时浮层跟着它走；它滚出屏幕就关掉，不留一个飘在半空的框。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>课程库的真实内容</h2>
+    <p class="sub">你导入过的 39 节课。点表头排序，输入框过滤。</p>
+    <div class="card">
+      <input class="search" id="hw-search" type="search" placeholder="搜索课程或播客" aria-label="搜索课程">
+      <div class="tw">
+        <table id="hw-table" data-source="lessons" data-row-key="title">
+          <thead>
+            <tr>
+              <th><button data-sort="title">课程</button></th>
+              <th><button data-sort="podcast">播客</button></th>
+              <th><button data-sort="minutes">分钟</button></th>
+              <th><button data-sort="segments">段</button></th>
+              <th><button data-sort="wpm">语速</button></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>词汇分类</h2>
+    <p class="sub">高亮的来源。生词本是你要主动认出来的那批，今日学习是今天会碰到的。</p>
+    <div class="card" data-source="vocab">
+      <div class="vocab" id="hw-vocab"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Token 表</h2>
+    <p class="sub">全部取自 cherina-pod 的 <code>:root</code>，另外补上它的深色值。</p>
+    <div class="card">
+      <div class="swatches">
+        <div class="sw"><i style="background:#F5F5F7"></i><span>--bg #F5F5F7</span></div>
+        <div class="sw"><i style="background:#FFFFFF"></i><span>--surface #FFFFFF</span></div>
+        <div class="sw"><i style="background:#1D1D1F"></i><span>--ink #1D1D1F</span></div>
+        <div class="sw"><i style="background:#6E6E73"></i><span>--ink2 #6E6E73</span></div>
+        <div class="sw"><i style="background:#AEAEB2"></i><span>--ink3 #AEAEB2</span></div>
+        <div class="sw"><i style="background:#E5E5EA"></i><span>--line #E5E5EA</span></div>
+        <div class="sw"><i style="background:#0071E3"></i><span>--acc #0071E3</span></div>
+        <div class="sw"><i style="background:#FF6B00"></i><span>--fire #FF6B00</span></div>
+        <div class="sw"><i style="background:#000000"></i><span>深色 --bg #000</span></div>
+        <div class="sw"><i style="background:#1C1C1E"></i><span>深色 --surface #1C1C1E</span></div>
+        <div class="sw"><i style="background:#2997FF"></i><span>深色 --acc #2997FF</span></div>
+      </div>
+      <ul class="q">
+        <li>圆角：小控件十四，卡片十六，弹层二十；描边统一 <code>0 0 0 .5px rgba(0,0,0,.05)</code>，不用投影。</li>
+        <li>缓动 <code>cubic-bezier(.22,.8,.24,1)</code>；动效只在 <code>prefers-reduced-motion: no-preference</code> 下跑。</li>
+        <li>字体：界面用系统栈；阅读正文是唯一的例外，保留衬线。</li>
+        <li>深色模式直接映射 podcast 的 <code>prefers-color-scheme: dark</code> 分支，两 tab 一起切。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>还需要你定的两件事</h2>
+    <div class="card">
+      <ul class="q">
+        <li>刷新只抓今天的一篇，还是顺带把词表数字也重拉一遍？现在设计成两个一起。</li>
+        <li>词间标题用「我的精读」对齐精听的「我的精听」，还是保留原来的「词间」加一行小字？</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+  (function () {
+    const $ = (s) => document.querySelector(s);
+    const num = (v) => Number(v);
+    const setText = (sel, value) => { const el = $(sel); if (el) el.textContent = value; };
+
+    // Declared before dash.onData runs its first pass, which happens synchronously.
+    let sortKey = 'title';
+    let sortDir = 1;
+    let query = '';
+
+    dash.calc('lessonTotals', {
+      inputs: ['lessons'],
+      title: '课程库合计',
+      description: '节数与总时长，由课程表的行相加。',
+      fn: (lessons) => ([
+        { metric: '课程', value: lessons.length },
+        { metric: '总时长', value: Math.round(lessons.reduce((sum, l) => sum + num(l.minutes), 0)) },
+      ]),
+    });
+
+    dash.onData(() => {
+      const lessons = dash.data('lessons');
+      const article = dash.data('article');
+      const recent = dash.data('recent');
+      const vocab = dash.data('vocab');
+
+      const rows = lessons.status === 'ok' ? lessons.data : [];
+      const art = article.status === 'ok' ? article.data[0] : null;
+      const list = recent.status === 'ok' ? recent.data : [];
+      const cats = vocab.status === 'ok' ? vocab.data : [];
+
+      if (rows.length) {
+        setText('#hw-hero-title', rows[0].title);
+        setText('#hw-hero-podcast', rows[0].podcast);
+        setText('#hw-row2', rows[1] ? rows[1].title : '—');
+        setText('#hw-row3', rows[2] ? rows[2].title : '—');
+        setText('#hw-row4', rows[3] ? rows[3].title : '—');
+      }
+      if (art) {
+        setText('#hw-art-title', art.title);
+        setText('#hw-art-cn', art.title_cn);
+        setText('#hw-art-title-2', art.title);
+        setText('#hw-art-cn-2', art.title_cn);
+        setText('#hw-excerpt', art.excerpt);
+      }
+
+      paintMarks();
+      drawTable(rows);
+      drawVocab(cats);
+      drawRecent(list);
+    });
+
+    // Every marked element shows its dataset value exactly as the file holds it.
+    function paintMarks() {
+      for (const el of document.querySelectorAll('[data-source][data-field]')) {
+        const state = dash.data(el.dataset.source);
+        if (state.status !== 'ok' || !Array.isArray(state.data)) continue;
+        const row = el.dataset.where
+          ? state.data.find((candidate) => whereMatches(candidate, el.dataset.where))
+          : state.data[Number(el.dataset.row || 0)];
+        if (!row) continue;
+        const value = row[el.dataset.field];
+        if (value !== undefined && value !== null) el.textContent = String(value);
+      }
+    }
+
+    function whereMatches(row, where) {
+      return where.split('&').every((pair) => {
+        const split = pair.indexOf('=');
+        const key = decodeURIComponent(pair.slice(0, split));
+        const expected = decodeURIComponent(pair.slice(split + 1));
+        return String(row[key]) === expected;
+      });
+    }
+
+    // --------------------------------------------------------------- recent
+    function drawRecent(rows) {
+      const host = $('#hw-recent');
+      if (!host) return;
+      host.replaceChildren();
+      for (const row of rows.slice(0, 3)) {
+        const card = document.createElement('div');
+        card.className = 'rcard';
+        const thumb = document.createElement('div');
+        thumb.className = 'rth';
+        const title = document.createElement('span');
+        title.className = 'rt2';
+        title.textContent = row.title;
+        card.append(thumb, title);
+        if (row.state === '今天') {
+          const state = document.createElement('span');
+          state.className = 'rs2';
+          state.textContent = '今天';
+          card.append(state);
+        } else {
+          const date = document.createElement('span');
+          date.className = 'rd2';
+          date.textContent = String(row.date).slice(5).replace('-', '/');
+          card.append(date);
+        }
+        host.append(card);
+      }
+    }
+
+    // ---------------------------------------------------------------- table
+    function drawTable(rows) {
+      const body = $('#hw-table tbody');
+      if (!body) return;
+      const filtered = rows
+        .filter((r) => !query || (r.title + ' ' + r.podcast).toLowerCase().includes(query))
+        .slice()
+        .sort((a, b) => {
+          const av = a[sortKey], bv = b[sortKey];
+          const isNum = sortKey === 'minutes' || sortKey === 'segments' || sortKey === 'wpm';
+          return (isNum ? num(av) - num(bv) : String(av).localeCompare(String(bv))) * sortDir;
+        });
+
+      const maxWpm = Math.max(...rows.map((r) => num(r.wpm)), 1);
+      body.replaceChildren();
+      for (const row of filtered) {
+        const tr = document.createElement('tr');
+        tr.dataset.key = row.title;
+        tr.append(
+          cell(row.title),
+          cell(row.podcast),
+          cell(Number(row.minutes).toFixed(1), 'num'),
+          cell(row.segments, 'num'),
+          barCell(Number(row.wpm), maxWpm),
+        );
+        body.append(tr);
+      }
+      for (const th of document.querySelectorAll('#hw-table th button')) {
+        th.closest('th').setAttribute('aria-sort',
+          th.dataset.sort === sortKey ? (sortDir === 1 ? 'ascending' : 'descending') : 'none');
+      }
+    }
+
+    function cell(text, cls) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (cls) td.className = cls;
+      return td;
+    }
+
+    function barCell(value, max) {
+      const td = document.createElement('td');
+      td.className = 'num bar-cell';
+      td.textContent = value;
+      const bar = document.createElement('i');
+      bar.style.transform = 'scaleX(' + (value / max).toFixed(3) + ')';
+      td.append(bar);
+      return td;
+    }
+
+    for (const button of document.querySelectorAll('#hw-table th button')) {
+      button.addEventListener('click', () => {
+        const key = button.dataset.sort;
+        if (key === sortKey) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
+        drawTable(dash.data('lessons').status === 'ok' ? dash.data('lessons').data : []);
+      });
+    }
+
+    const search = $('#hw-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        query = search.value.trim().toLowerCase();
+        drawTable(dash.data('lessons').status === 'ok' ? dash.data('lessons').data : []);
+      });
+    }
+
+    // ----------------------------------------------------------------- vocab
+    function drawVocab(cats) {
+      const host = $('#hw-vocab');
+      if (!host) return;
+      const max = Math.max(...cats.map((c) => num(c.words)), 1);
+      host.replaceChildren();
+      for (const cat of cats) {
+        const row = document.createElement('div');
+        row.className = 'vrow';
+        const label = document.createElement('span');
+        label.textContent = cat.label;
+        const track = document.createElement('div');
+        track.className = 'vtrack';
+        const fill = document.createElement('div');
+        fill.className = 'vfill';
+        fill.style.width = (num(cat.words) / max * 100).toFixed(1) + '%';
+        track.append(fill);
+        const value = document.createElement('span');
+        value.textContent = num(cat.words).toLocaleString('zh-CN');
+        row.append(label, track, value);
+        host.append(row);
+      }
+    }
+  })();
+</script>

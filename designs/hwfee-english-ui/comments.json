@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "threads": [
+    {
+      "id": "c_d16102b85a",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4)",
+      "label": "“Provence Is Not Just a Destination. It I…” › Card “Word · 点词”",
+      "detail": "Card \"Word · 点词\" in \"Provence Is Not Just a Destination. It Is a Lifestyle Brand\" · <div class=\"pop word\"> · text \"WORD · 点词 dined v. 进餐；用饭（dine 的过去式） 已在生词本 · 移除\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T01:36:33.537Z",
+      "updatedAt": "2026-11-02T01:42:10.958Z",
+      "messages": [
+        {
+          "id": "m_093c6005b7",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "if in wordbook the botttton sshould be remove it from the wordbook",
+          "at": "2026-11-02T01:36:33.537Z"
+        },
+        {
+          "id": "m_9aa1a78d7b",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "已经按这个做了：不在生词本时是蓝底「加入生词本」，已在生词本时变成描边的「已在生词本 · 移除」，点一下就从生词本删掉。两个状态都在交互那张图里。",
+          "at": "2026-11-02T01:42:10.958Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T01:42:10.958Z"
+    },
+    {
+      "id": "c_c3e5ae5933",
+      "anchor": "#hw-recent",
+      "label": "“2026-11-02” › Element “hw-recent”",
+      "detail": "Element \"hw-recent\" in \"2026-11-02\" · <div id=\"hw-recent\" class=\"rlist\" data-source=\"recent\"> · text \"11/02 Provence Is Not Just a Destination. It Is a Lifestyle Brand 今天 10/31 What's That Lurking in the Mist? Inside the Eerie Science of Bogs 10/30 How Body Odor…\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T01:37:30.281Z",
+      "updatedAt": "2026-11-02T01:42:11.080Z",
+      "messages": [
+        {
+          "id": "m_d04411ff92",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "restruct it with podcast token",
+          "at": "2026-11-02T01:37:30.281Z"
+        },
+        {
+          "id": "m_ab5313e1d6",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "近几篇换成课程卡那一套：白卡、十六圆角、左边封面位、标题、右边日期（今天那行标「今天」），和精听列表同一节奏。",
+          "at": "2026-11-02T01:42:11.080Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T01:42:11.080Z"
+    },
+    {
+      "id": "c_fc274bbf4a",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3)",
+      "label": "“2026-11-02” › Card “今天的一篇 ·”",
+      "detail": "Card \"今天的一篇 ·\" in \"2026-11-02\" · <div class=\"hero tall\"> · text \"今天的一篇 · 六级考纲词汇(精简版) Provence Is Not Just a Destination. It Is a Lifestyle Brand 普罗旺斯：流量与「本真」的商业博弈 770 词 10 段 约 13 分钟 开始读这一篇\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T01:37:59.511Z",
+      "updatedAt": "2026-11-02T01:42:41.268Z",
+      "messages": [
+        {
+          "id": "m_4892a457cc",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "can you get some picture like the other tab",
+          "at": "2026-11-02T01:37:59.511Z"
+        },
+        {
+          "id": "m_4b2a398fb3",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "加了真封面：今天这篇的图从扇贝文章接口取下来（压到 320px 再内嵌），放在和精听卡片相同的位置——左图右字。近几篇的每一行也留了同样的封面位。",
+          "at": "2026-11-02T01:42:41.268Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T01:42:41.268Z"
+    },
+    {
+      "id": "c_fe3e359cd4",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(1) > div:nth-of-type(1)",
+      "label": "“精听 原样，不动” › Card “2026-11-02”",
+      "detail": "Card \"2026-11-02\" in \"精听 原样，不动\" · <div class=\"phone\"> · text \"2026-11-02 ⤓ 我的精听 连续 —天 今天 —分钟 累计完成 —段 待复习 —句 继续这一课 a chat in English while I paint my nails English with Evie 16.7 分钟 144 词/分 7 段 课程库 a cosy day at home in the…\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T01:39:01.260Z",
+      "updatedAt": "2026-11-02T01:42:11.355Z",
+      "messages": [
+        {
+          "id": "m_c791931c11",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "we need a switch to switch three tabs",
+          "at": "2026-11-02T01:39:01.260Z"
+        },
+        {
+          "id": "m_97da69d0e9",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "底部改成三个 tab：精听 / 阅读 / 设置，设置不再是从侧边弹出来的浮层。导入回到精听顶行，刷新在词间顶行，每个 tab 只留一个主操作。",
+          "at": "2026-11-02T01:42:11.355Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T01:42:11.355Z"
+    }
+  ]
+}

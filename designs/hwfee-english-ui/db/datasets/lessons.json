@@ -1,0 +1,13 @@
+{
+  "title": "课程库 39 节",
+  "description": "已导入的 cherina-pod 课程及其时长、语速、段数。从 dist/整库/cherina-pod-四级-39节.zip 内每节的 lesson.json 读出。",
+  "source": {
+    "kind": "file",
+    "url": "/_blob/2bd90400a270b10d89926c975f92ae42",
+    "name": "lessons.csv"
+  },
+  "updated": {
+    "at": "2026-11-02T01:16:00Z",
+    "by": "HwFee"
+  }
+}

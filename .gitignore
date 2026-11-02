@@ -24,3 +24,8 @@ android/*.keystore
 Thumbs.db
 .idea/
 *.iml
+
+# Dashboard editor runtime files (the design folder itself is committed)
+designs/*/.artifact-server.json
+designs/*/.artifact-server.log
+designs/*/.sharing.json
