@@ -7,14 +7,12 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.assumeNoException;
 
 public class LessonRequestSupportTest {
     @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -35,17 +33,12 @@ public class LessonRequestSupportTest {
     @Test public void rejectsCanonicalPathsThatEscapeThroughSymlinks() throws Exception {
         File root = temporaryFolder.newFolder("lessons");
         File outside = temporaryFolder.newFolder("outside");
-        Path link = new File(root, "linked").toPath();
-        try {
-            Files.createSymbolicLink(link, outside.toPath());
-        } catch (Exception error) {
-            assumeNoException("Symbolic links unavailable on this host", error);
-        }
+        SymlinkSupport.createOrSkip(new File(root, "linked").toPath(), outside.toPath());
         assertNull(LessonRequestSupport.resolveLessonFile(root, "linked/secret.txt"));
         File realLesson = new File(root, "real-lesson");
         assertTrue(realLesson.mkdir());
         assertTrue(new File(outside, "secret.html").createNewFile());
-        Files.createSymbolicLink(new File(realLesson, "player.html").toPath(),
+        SymlinkSupport.createOrSkip(new File(realLesson, "player.html").toPath(),
                 new File(outside, "secret.html").toPath());
         assertNull(LessonRequestSupport.resolveLessonFile(root, "real-lesson"));
     }

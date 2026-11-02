@@ -120,3 +120,9 @@ is the SAF picker behind the shell's import button.
   player cannot seek, and line-by-line playback depends on seeking.
 - **Two levels, one payload id.** cherina-pod's `cet4/` and `cet6/` folders carry the same lesson id,
   so the imported id comes from the path and the level goes into the title.
+- **Symlink tests skip on Windows.** The lesson guards compare canonical paths. A Windows host can
+  create the symlink yet `java.io` canonicalisation keeps reporting the link path, so
+  `LessonPathTest` and `LessonRequestSupportTest` mark those cases skipped via `SymlinkSupport`.
+  They run for real on Linux/macOS, which is also how Android behaves (`realpath` resolves links).
+- **An iframe's plugin calls never resolve.** Both tabs are iframes; an iframe receives its own
+  injected Capacitor whose calls hang forever. Route bridge calls through `window.top.Capacitor`.

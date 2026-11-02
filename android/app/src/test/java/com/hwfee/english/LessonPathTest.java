@@ -2,13 +2,9 @@ package com.hwfee.english;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.Assume;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -34,12 +30,12 @@ public class LessonPathTest {
     @Test public void rejectsSymlinksThatEscapeOrRedirectWithinRoot() throws Exception {
         File root = temporaryFolder.newFolder("lessons");
         File outside = temporaryFolder.newFolder("outside");
-        createSymlinkOrSkip(new File(root, "escape").toPath(), outside.toPath());
+        SymlinkSupport.createOrSkip(new File(root, "escape").toPath(), outside.toPath());
         assertNull(LessonPath.directLessonDirectory(root, "escape"));
 
         File actualLesson = new File(root, "actual");
         assertTrue(actualLesson.mkdir());
-        createSymlinkOrSkip(new File(root, "alias").toPath(), actualLesson.toPath());
+        SymlinkSupport.createOrSkip(new File(root, "alias").toPath(), actualLesson.toPath());
         assertNull(LessonPath.directLessonDirectory(root, "alias"));
     }
 
@@ -61,18 +57,10 @@ public class LessonPathTest {
         File outside = temporaryFolder.newFolder("outside");
         File sentinel = new File(outside, "keep.txt");
         assertTrue(sentinel.createNewFile());
-        createSymlinkOrSkip(new File(nested, "redirect").toPath(), outside.toPath());
+        SymlinkSupport.createOrSkip(new File(nested, "redirect").toPath(), outside.toPath());
 
         assertTrue(LessonPath.deleteLessonTree(lesson));
         assertTrue(!lesson.exists());
         assertTrue(sentinel.isFile());
-    }
-
-    private static void createSymlinkOrSkip(Path link, Path target) throws IOException {
-        try {
-            Files.createSymbolicLink(link, target);
-        } catch (IOException | UnsupportedOperationException | SecurityException error) {
-            Assume.assumeNoException("Symbolic links unavailable on this host", error);
-        }
     }
 }
