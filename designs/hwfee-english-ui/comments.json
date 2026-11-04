@@ -132,6 +132,368 @@
         }
       ],
       "resolvedAt": "2026-11-02T01:42:11.355Z"
+    },
+    {
+      "id": "c_7e88e850af",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3)",
+      "label": "“精听 原样，不动” › Card “继续这一课”",
+      "detail": "Card \"继续这一课\" in \"精听 原样，不动\" · <div class=\"hero\"> · text \"继续这一课 a chat in English while I paint my nails English with Evie 16.7 分钟 144 词/分 7 段\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:40:11.840Z",
+      "updatedAt": "2026-11-02T02:45:29.385Z",
+      "messages": [
+        {
+          "id": "m_54796b419e",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "union the card to the other tab and use the real picture for all",
+          "at": "2026-11-02T02:40:11.840Z"
+        },
+        {
+          "id": "m_62094b5ebf",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "两张卡合并成一个组件了：精听那张现在和词间一样——左图右字、下面 chips、一颗主按钮（继续播放 / 开始读这一篇）。图片全部换成真图：精听是四节课各自的 YouTube 封面，词间是今天这篇的扇贝封面，近几篇里今天那行也用它。近几篇更早的三行还是占位色块，因为桌面端扇贝登录态过期，取不到它们自己的封面。",
+          "at": "2026-11-02T02:45:29.385Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:45:29.385Z"
+    },
+    {
+      "id": "c_375d0d7959",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3)",
+      "label": "“Provence Is Not Just a Destination. It I…” › Card “译文 · 长按句子”",
+      "detail": "Card \"译文 · 长按句子\" in \"Provence Is Not Just a Destination. It Is a Lifestyle Brand\" · <div class=\"pop\"> · text \"译文 · 长按句子 生蚝曾经是穷人吃的食物。 点浮层外关闭 · 打开另一个时先关这个\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:41:27.977Z",
+      "updatedAt": "2026-11-02T02:45:29.525Z",
+      "messages": [
+        {
+          "id": "m_89f1135087",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "use the real data  i need to see the liquid glass",
+          "at": "2026-11-02T02:41:27.977Z"
+        },
+        {
+          "id": "m_65a9f2c0ff",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "换成了文章里的真句子：“Increasingly, it is also a lifestyle brand.” 译文是整段的真实中文。翻译卡本身也改成玻璃材质（半透明 + 背景模糊 + 顶部高光），所以在阅读那张图上就能看到 liquid glass，不再是一张白卡。",
+          "at": "2026-11-02T02:45:29.525Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:45:29.525Z"
+    },
+    {
+      "id": "c_41e52f6fe1",
+      "anchor": "#hw-art-cn",
+      "label": "“今天的一篇 ·” › Element “hw-art-cn”",
+      "detail": "Element \"hw-art-cn\" in \"今天的一篇 ·\" · <div id=\"hw-art-cn\" class=\"hp\"> · text \"普罗旺斯：流量与「本真」的商业博弈\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:48:40.914Z",
+      "updatedAt": "2026-11-02T02:57:31.564Z",
+      "messages": [
+        {
+          "id": "m_578e2e3dcb",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "delete it for more unilying",
+          "at": "2026-11-02T02:48:40.914Z"
+        },
+        {
+          "id": "m_d3c71f5ea3",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "删了。今天这张卡现在和精听那张完全一致：封面 + 「今天的一篇 · 词书」+ 英文标题 + chips + 按钮，没有中文副标题那一行。",
+          "at": "2026-11-02T02:57:31.564Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:57:31.564Z"
+    },
+    {
+      "id": "c_1aa7686644",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4)",
+      "label": "“扇贝” › Card “课程库”",
+      "detail": "Card \"课程库\" in \"扇贝\" · <div class=\"card-s\"> · text \"课程库 39 节课 · 671 分钟\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:53:01.294Z",
+      "updatedAt": "2026-11-02T02:57:31.689Z",
+      "messages": [
+        {
+          "id": "m_d1f41d6071",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "delete",
+          "at": "2026-11-02T02:53:01.294Z"
+        },
+        {
+          "id": "m_df4e2d6fc1",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "删了。设置只剩扇贝和翻译两张卡。",
+          "at": "2026-11-02T02:57:31.689Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:57:31.689Z"
+    },
+    {
+      "id": "c_f4cc62bf80",
+      "anchor": "#hw-recent > div:nth-of-type(2)",
+      "label": "“词间 同一骨架，刷新在顶行” › Card “What's That Lurking in the Mist? Inside …”",
+      "detail": "Card \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs\" in \"词间 同一骨架，刷新在顶行\" · <div class=\"rcard\"> · text \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs 10/31\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:53:18.290Z",
+      "updatedAt": "2026-11-02T02:57:31.812Z",
+      "messages": [
+        {
+          "id": "m_1ee7b5d803",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "with real data",
+          "at": "2026-11-02T02:53:18.290Z"
+        },
+        {
+          "id": "m_9c3cd29eb5",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "每行现在显示这篇文章自己的真实数字：词数 · 段数，从 recent 数据集读，不是写死的。今天那行还带真封面；更早三行不再放灰色假图——桌面端扇贝登录态过期，取不到它们的封面，等登录刷新了我再补。",
+          "at": "2026-11-02T02:57:31.812Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:57:31.812Z"
+    },
+    {
+      "id": "c_18d64d9df8",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1)",
+      "label": "“词间 · 交互 长按与点词” › Card “Provence Is Not Just a Destination. It I…”",
+      "detail": "Card \"Provence Is Not Just a Destination. It Is a Lifestyle Brand\" in \"词间 · 交互 长按与点词\" · <div class=\"paper\"> · text \"Provence Is Not Just a Destination. It Is a Lifestyle Brand 普罗旺斯：流量与「本真」的商业博弈 To most people, Provence is a region of France. Increasingly, it is also a lifesty…\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:54:35.774Z",
+      "updatedAt": "2026-11-02T02:57:31.937Z",
+      "messages": [
+        {
+          "id": "m_8a32116e63",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "i need a long article to show the liquid glass effect when something in the swticher",
+          "at": "2026-11-02T02:54:35.774Z"
+        },
+        {
+          "id": "m_60b808f962",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "阅读那张图换成 10/31 的真文章（9 段、280 词），正文排满并滚到底栏下面，玻璃压在文字上才能看出模糊和边缘反光。长按那句也是原文：the devil-dog Black Shuck lurking in the mist。",
+          "at": "2026-11-02T02:57:31.937Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T02:57:31.937Z"
+    },
+    {
+      "id": "c_970f0d27ff",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1)",
+      "label": "“词间 · 交互 长按与点词” › Card “What's That Lurking in the Mist? Inside …”",
+      "detail": "Card \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs\" in \"词间 · 交互 长按与点词\" · <div class=\"paper\"> · text \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs 走进自然，揭开沼泽的神秘面纱 Bogs are rich in storied horror, and the wetlands of eastern England are no exc…\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T02:59:13.311Z",
+      "updatedAt": "2026-11-02T03:02:17.395Z",
+      "messages": [
+        {
+          "id": "m_fde3efc658",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "article should be in the bottom of the switcher",
+          "at": "2026-11-02T02:59:13.311Z"
+        },
+        {
+          "id": "m_923d7e5d97",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "正文现在铺到屏幕两边、一直延伸到底栏下面，不再是中间一张带边距的白卡；玻璃底下始终压着字。译文浮层也移到被长按那句的正下方，跟着句子走。",
+          "at": "2026-11-02T03:02:17.395Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T03:02:17.395Z"
+    },
+    {
+      "id": "c_6f495cd684",
+      "anchor": "#hw-recent > div:nth-of-type(1)",
+      "label": "“词间 同一骨架，刷新在顶行” › Card “Provence Is Not Just a Destination. It I…”",
+      "detail": "Card \"Provence Is Not Just a Destination. It Is a Lifestyle Brand\" in \"词间 同一骨架，刷新在顶行\" · <div class=\"rcard\"> · text \"Provence Is Not Just a Destination. It Is a Lifestyle Brand 770 词 · 10 段 今天\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T03:00:06.463Z",
+      "updatedAt": "2026-11-02T03:02:17.533Z",
+      "messages": [
+        {
+          "id": "m_b867bdc6a8",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "the label is the standard  union all including pod-tab",
+          "at": "2026-11-02T03:00:06.463Z"
+        },
+        {
+          "id": "m_e8eaa5182f",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "标签统一了：两张卡都只用短标签——精听是「继续这一课」，词间是「今天的一篇」，词书名从标签里拿掉了。结构也一样：封面、标签、标题、chips、一颗主按钮。",
+          "at": "2026-11-02T03:02:17.533Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T03:02:17.533Z"
+    },
+    {
+      "id": "c_c99e39e0ae",
+      "anchor": "#hw-art-body > div:nth-of-type(1)",
+      "label": "“What's That Lurking in the Mist? Inside …” › Card “译文 · 长按句子”",
+      "detail": "Card \"译文 · 长按句子\" in \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs\" · <div class=\"pop glass\"> · text \"译文 · 长按句子 在雾中出没的魔犬「黑夏克」。 点浮层外关闭 · 打开另一个时先关这个\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T03:03:38.044Z",
+      "updatedAt": "2026-11-02T03:09:10.877Z",
+      "messages": [
+        {
+          "id": "m_8a12d0d0bb",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "it can cover other sentence other sentence don't need to move",
+          "at": "2026-11-02T03:03:38.044Z"
+        },
+        {
+          "id": "m_360adc8b85",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "规则改成只有一条：被点的那一句不能被压住。压到别的句子无所谓，正文不重排、不跳动；翻上翻下只为了不挡住那一句。",
+          "at": "2026-11-02T03:09:10.877Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T03:09:10.877Z"
+    },
+    {
+      "id": "c_ee7d02871e",
+      "anchor": "#hw-recent > div:nth-of-type(2)",
+      "label": "“词间 同一骨架，刷新在顶行” › Card “What's That Lurking in the Mist? Inside …”",
+      "detail": "Card \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs\" in \"词间 同一骨架，刷新在顶行\" · <div class=\"rcard\"> · text \"What's That Lurking in the Mist? Inside the Eerie Science of Bogs 630 词 · 20 段 10/31\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "open",
+      "createdAt": "2026-11-02T03:04:19.628Z",
+      "updatedAt": "2026-11-02T03:09:11.136Z",
+      "messages": [
+        {
+          "id": "m_1e17bdb0c2",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "need picture and podcast tab also need this change",
+          "at": "2026-11-02T03:04:19.628Z"
+        },
+        {
+          "id": "m_92fa31de17",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "词间每行的结构已经和精听一致，精听那边也同步改了。图片这块只做到一半：今天那行有真封面，10/31 和更早两行的封面取不到——桌面端扇贝登录态过期，本机也没有缓存过的封面地址。要么刷新一次登录，要么我在 reader 里改成运行时抓封面，那样线上永远是真图。这两条你选一个，我就接着做。",
+          "at": "2026-11-02T03:09:11.136Z"
+        }
+      ]
+    },
+    {
+      "id": "c_052f0a223d",
+      "anchor": "#dash-root > div:nth-of-type(1) > section:nth-of-type(2) > div:nth-of-type(1) > figure:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4) > div:nth-of-type(1)",
+      "label": "“精听 原样，不动” › Card “a cosy day at home in the UK”",
+      "detail": "Card \"a cosy day at home in the UK\" in \"精听 原样，不动\" · <div class=\"rcard\"> · text \"a cosy day at home in the UK 13.3′\"",
+      "location": {
+        "file": "files/index.html"
+      },
+      "status": "resolved",
+      "createdAt": "2026-11-02T03:05:10.035Z",
+      "updatedAt": "2026-11-02T03:09:11.006Z",
+      "messages": [
+        {
+          "id": "m_5db145163b",
+          "author": {
+            "kind": "user",
+            "name": "HwFee"
+          },
+          "text": "align with jingdu   words/min duan",
+          "at": "2026-11-02T03:05:10.035Z"
+        },
+        {
+          "id": "m_8b9ff82b34",
+          "author": {
+            "kind": "agent",
+            "name": "agent"
+          },
+          "text": "对齐了：精听每行也变成「封面 + 标题 + 144 词/分 · 7 段」，右边是时长；和词间的「封面 + 标题 + 770 词 · 10 段」同一套结构。",
+          "at": "2026-11-02T03:09:11.006Z"
+        }
+      ],
+      "resolvedAt": "2026-11-02T03:09:11.006Z"
     }
   ]
 }

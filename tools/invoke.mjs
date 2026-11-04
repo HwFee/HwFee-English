@@ -14,7 +14,8 @@ if (expression.startsWith('@')) {
 }
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-const page = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl) ?? targets.find((t) => t.webSocketDebuggerUrl);
+const page = targets.find((t) => t.type === 'page' && /^https:\/\/localhost\/(?:index\.html)?(?:\?.*)?$/.test(t.url) && t.webSocketDebuggerUrl)
+  ?? targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl) ?? targets.find((t) => t.webSocketDebuggerUrl);
 if (!page) {
   console.error('no debuggable page. targets:', JSON.stringify(targets));
   process.exit(1);

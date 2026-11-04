@@ -16,6 +16,11 @@ import org.robolectric.android.controller.ServiceController;
 import org.robolectric.shadows.ShadowPowerManager;
 
 import java.time.Duration;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.concurrent.Future;
+import android.graphics.Bitmap;
+import org.robolectric.util.ReflectionHelpers;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
@@ -90,5 +95,65 @@ public class PlaybackServiceTest {
         send(PlaybackService.ACTION_START);
         assertTrue(PlaybackService.hasSession());
         assertNotNull(shadowOf(service).getLastForegroundNotification());
+    }
+
+    private String cover() throws Exception {
+        File dir = new File(service.getFilesDir(), "lessons/artwork-test");
+        assertTrue(dir.isDirectory() || dir.mkdirs());
+        try (FileOutputStream out = new FileOutputStream(new File(dir, "cover.png"))) {
+            Bitmap.createBitmap(1024, 768, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, out);
+        }
+        return "https://localhost/lessons/artwork-test/cover.png";
+    }
+
+    private void playWithArtwork(String title, String source) {
+        service.onStartCommand(new Intent(service, PlaybackService.class).setAction(PlaybackService.ACTION_STATE)
+                .putExtra("playing", true).putExtra("title", title).putExtra("artist", "Podcast")
+                .putExtra("lesson", title).putExtra("artwork", source).putExtra("duration", 600000L), 0, 1);
+    }
+
+    @Test public void coverReachesNotificationAndClearsWhenLessonChanges() throws Exception {
+        playWithArtwork("First", cover());
+        ((Future<?>) ReflectionHelpers.getField(service, "artworkTask")).get();
+        shadowOf(Looper.getMainLooper()).idle();
+        Bitmap image = ReflectionHelpers.getField(service, "artwork");
+        assertNotNull(image);
+        assertTrue(image.getWidth() <= 512);
+        android.app.NotificationManager manager = service.getSystemService(android.app.NotificationManager.class);
+        assertNotNull(shadowOf(manager).getNotification(4211).getLargeIcon());
+        playWithArtwork("Second", "");
+        assertNull(ReflectionHelpers.getField(service, "artwork"));
+        assertEquals("Second", shadowOf(service).getLastForegroundNotification().extras.getString("android.title"));
+        assertNull(shadowOf(service).getLastForegroundNotification().getLargeIcon());
+    }
+
+    @Test public void lateArtworkCannotOverwriteANewerLesson() throws Exception {
+        playWithArtwork("First", cover());
+        ((Future<?>) ReflectionHelpers.getField(service, "artworkTask")).get();
+        playWithArtwork("Second", "");
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNull(ReflectionHelpers.getField(service, "artwork"));
+    }
+
+    @Test public void ordinaryProgressReusesTheNotificationAndPauseStillUpdatesItImmediately() {
+        send(PlaybackService.ACTION_START);
+        com.getcapacitor.JSObject state = new com.getcapacitor.JSObject().put("title", "Lesson")
+                .put("artist", "Podcast").put("lesson", "current").put("duration", 120).put("position", 1)
+                .put("playing", true).put("rate", 1);
+        ReflectionHelpers.callInstanceMethod(service, "onNativeState",
+                ReflectionHelpers.ClassParameter.from(com.getcapacitor.JSObject.class, state));
+        android.app.NotificationManager manager = service.getSystemService(android.app.NotificationManager.class);
+        android.app.Notification first = shadowOf(manager).getNotification(4211);
+        assertNotNull(first);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2));
+        state.put("position", 3);
+        ReflectionHelpers.callInstanceMethod(service, "onNativeState",
+                ReflectionHelpers.ClassParameter.from(com.getcapacitor.JSObject.class, state));
+        assertSame(first, shadowOf(manager).getNotification(4211));
+        state.put("playing", false);
+        ReflectionHelpers.callInstanceMethod(service, "onNativeState",
+                ReflectionHelpers.ClassParameter.from(com.getcapacitor.JSObject.class, state));
+        assertNotSame(first, shadowOf(manager).getNotification(4211));
+        assertEquals("播放", shadowOf(manager).getNotification(4211).actions[0].title);
     }
 }

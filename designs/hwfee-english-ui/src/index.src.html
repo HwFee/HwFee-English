@@ -29,6 +29,7 @@
   /* translation popover, anchored to the pressed sentence */
   .hw .sent-line { margin: 6px 0 0; }
   .hw .sent-line mark { background: var(--acc-soft); color: var(--acc-ink); border-radius: 3px; padding: 0 2px; }
+  .hw .body-text mark { background: var(--acc-soft); color: var(--acc-ink); border-radius: 3px; padding: 0 2px; }
   .hw .pop { position: relative; margin: 9px 0 0 6px; background: var(--surface); border-radius: 14px;
              padding: 7px 9px; border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.12); max-width: 88%; }
   .hw .pop::before { content: ""; position: absolute; top: -5px; left: 15px; width: 8px; height: 8px;
@@ -42,11 +43,51 @@
                  border-radius: 20px; background: var(--acc); color: #fff; }
   .hw .pop .pb.done { background: transparent; color: var(--ink); border: 1px solid var(--ink3); }
 
-  /* bottom tab switch */
-  .hw .tabbar { flex: none; display: flex; gap: 4px; margin: 8px -14px 0; padding: 6px 14px 14px;
-                border-top: 1px solid var(--line); background: var(--bg); }
-  .hw .tb { flex: 1; text-align: center; font-size: 9px; font-weight: 500; color: var(--ink2); padding: 3px 0; }
-  .hw .tb.on { color: var(--acc); font-weight: 600; }
+  /* The translation card is the same glass as the switcher, so the material reads here too. */
+  .hw .pop.glass { background: rgba(255, 255, 255, .55); border-color: rgba(255, 255, 255, .6);
+                   -webkit-backdrop-filter: blur(16px) saturate(180%);
+                   backdrop-filter: blur(16px) saturate(180%);
+                   box-shadow: 0 10px 26px rgba(29, 29, 31, .14), inset 0 1px 0 rgba(255, 255, 255, .8); }
+  .hw .pop.glass::before { background: rgba(255, 255, 255, .55);
+                           border-color: rgba(255, 255, 255, .6); }
+
+  /* Floating glass island — the same recipe as web/shell.css, on the podcast tokens. */
+  .hw .phone > .tabbar { position: absolute; left: 50%; bottom: 18px; z-index: 3;
+                transform: translateX(-50%); width: calc(100% - 32px); max-width: 248px;
+                box-sizing: border-box; height: 54px; display: flex; align-items: stretch; gap: 2px;
+                padding: 5px; border-radius: 27px;
+                background: rgba(252, 252, 253, .62);
+                -webkit-backdrop-filter: blur(18px) saturate(180%);
+                backdrop-filter: blur(18px) saturate(180%);
+                border: 1px solid rgba(255, 255, 255, .55);
+                box-shadow: 0 10px 26px rgba(29, 29, 31, .16), inset 0 1px 0 rgba(255, 255, 255, .75),
+                            inset 0 -1px 0 rgba(29, 29, 31, .05); }
+  /* rim light: bright top-left, dim bottom-right */
+  .hw .tabbar::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+                background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(255,255,255,0) 42%,
+                                            rgba(255,255,255,0) 62%, rgba(255,255,255,.4));
+                -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  /* grain, or heavy blur bands across the flat ground */
+  .hw .tabbar::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+                opacity: .035; mix-blend-mode: overlay;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .hw .tb { position: relative; z-index: 1; flex: 1; min-width: 0; box-sizing: border-box;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 3px; border-radius: 22px; font-family: var(--ui);
+            font-size: 9px; line-height: 1.15; font-weight: 500; color: var(--ink2); }
+  .hw .tb svg { width: 16px; height: 16px; flex: none; }
+  .hw .tb.on { color: var(--acc-ink); font-weight: 600; background: rgba(255, 255, 255, .72);
+               -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+               box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(255, 255, 255, .6),
+                           0 2px 6px rgba(29, 29, 31, .10); }
+  .hw .tb .dot { position: absolute; top: 4px; right: calc(50% - 12px); width: 5px; height: 5px;
+                 border-radius: 50%; background: var(--fire); }
+  @media (prefers-reduced-transparency: reduce) {
+    .hw .tabbar { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .hw .tabbar::after { display: none; }
+    .hw .tb.on { background: var(--track); }
+  }
 
   /* article cover + recent cards, mirroring the lesson cards */
   .hw .hero-top { display: flex; gap: 8px; align-items: flex-start; }
@@ -54,10 +95,12 @@
   .hw .rlist { display: flex; flex-direction: column; gap: 6px; }
   .hw .rcard { display: flex; gap: 8px; align-items: center; background: var(--surface); border-radius: 12px;
                padding: 7px 8px; box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
-  .hw .rth { width: 28px; height: 28px; border-radius: 7px; flex: none;
+  .hw .rth { width: 28px; height: 28px; border-radius: 7px; flex: none; object-fit: cover; display: block;
              background: linear-gradient(150deg,#cfd8e3,#7f97af); }
-  .hw .rt2 { flex: 1; font-size: 9.5px; line-height: 1.25; color: var(--ink); min-width: 0;
+  .hw .rt2 { font-size: 9.5px; line-height: 1.25; color: var(--ink); min-width: 0;
              display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hw .rcard .rbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .hw .rmeta { font-size: 7.5px; color: var(--ink3); font-variant-numeric: tabular-nums; }
   .hw .rd2 { font-size: 7.5px; color: var(--ink3); flex: none; font-variant-numeric: tabular-nums; }
   .hw .rs2 { font-size: 7.5px; font-weight: 600; color: var(--acc); flex: none; }
 
@@ -77,10 +120,15 @@
   /* ---------- phone artboard ---------- */
   .hw .phone { position: relative; padding: 16px 14px 0; border-radius: 30px; border: 1px solid var(--line);
                background: var(--bg); box-shadow: 0 10px 30px rgba(0,0,0,.08); overflow: hidden;
-               aspect-ratio: 390 / 760; display: flex; flex-direction: column; font-family: var(--ui); }
+               aspect-ratio: 390 / 760; display: flex; flex-direction: column; font-family: var(--ui);
+               isolation: isolate; min-width: 0; }
   .hw .phone::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 34%; height: 4px;
                       transform: translateX(-50%); border-radius: 2px; background: rgba(0,0,0,.16); }
-  .hw .scr { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 9px; color: var(--ink); }
+  .hw .scr { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+             display: flex; flex-direction: column; gap: 9px; color: var(--ink);
+             padding-bottom: 84px; overscroll-behavior: contain; scrollbar-width: none; }
+  .hw .scr::-webkit-scrollbar { display: none; }
+  .hw .scr > * { flex-shrink: 0; }
   .hw .micro { font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin: 0; }
   .hw .ttl { font-size: 17px; font-weight: 700; letter-spacing: -.03em; margin: 0; color: var(--ink); }
   .hw .bar { display: flex; align-items: center; justify-content: space-between; }
@@ -130,6 +178,11 @@
   .hw .paper { border-radius: 16px; background: var(--surface); padding: 10px; box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
   .hw .paper .art-t { font-size: 12.5px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; color: var(--ink); }
   .hw .paper .art-cn { font-size: 8.5px; color: var(--ink2); margin-top: 3px; }
+
+  /* The reading artboard runs edge to edge: the article keeps going behind the island. */
+  .hw .phone.bleed { padding-left: 0; padding-right: 0; }
+  .hw .phone.bleed .scr { padding-bottom: 0; }
+  .hw .phone.bleed .paper { border-radius: 0; box-shadow: none; padding: 14px 16px 96px; }
   .hw .body-text { font-family: var(--font-anthropic-serif); font-size: 9.5px; line-height: 1.75; color: var(--ink);
                    margin: 7px 0 0; }
   .hw .hl-today { border-bottom: 1px dotted var(--ink3); }
@@ -212,8 +265,8 @@
   </section>
 
   <section>
-    <h2>三个界面</h2>
-    <p class="sub">左一是精听，原样不动，只为对照；右边两个是要改的。灰色破折号是 app 本地状态，还没接进来。</p>
+    <h2>界面状态</h2>
+    <p class="sub">精听内容保持原样，只为对照；词间首页、阅读交互和设置展示本次设计。每张手机预览底部各有自己的悬浮导航。灰色破折号代表尚未接入的 app 本地状态。</p>
     <div class="grid3">
 
       <figure>
@@ -231,27 +284,32 @@
               <div class="tile"><em>累计完成</em><b>—<i>段</i></b></div>
               <div class="tile"><em>待复习</em><b class="acc">—<i>句</i></b></div>
             </div>
-            <div class="hero">
-              <div class="cover"></div>
-              <div>
-                <div class="hl">继续这一课</div>
-                <div class="ht" id="hw-hero-title">—</div>
-                <div class="hp" id="hw-hero-podcast">—</div>
-                <div class="chips">
-                  <span class="chip"><span data-source="lessons" data-field="minutes" data-row="0">—</span> 分钟</span>
-                  <span class="chip"><span data-source="lessons" data-field="wpm" data-row="0">—</span> 词/分</span>
-                  <span class="chip"><span data-source="lessons" data-field="segments" data-row="0">—</span> 段</span>
+            <div class="hero tall">
+              <div class="hero-top">
+                <img class="coverimg" src="{{IMG:lesson0}}" alt="">
+                <div>
+                  <div class="hl">继续这一课</div>
+                  <div class="ht" id="hw-hero-title">—</div>
+                  <div class="hp" id="hw-hero-podcast">—</div>
                 </div>
               </div>
+              <div class="chips">
+                <span class="chip"><span data-source="lessons" data-field="minutes" data-row="0">—</span> 分钟</span>
+                <span class="chip"><span data-source="lessons" data-field="wpm" data-row="0">—</span> 词/分</span>
+                <span class="chip"><span data-source="lessons" data-field="segments" data-row="0">—</span> 段</span>
+              </div>
+              <div class="cta">继续播放</div>
             </div>
             <p class="micro">课程库</p>
-            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row2">—</div></div>
-            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row3">—</div></div>
-            <div class="lrow"><div class="mini"></div><div class="lt" id="hw-row4">—</div></div>
+            <div class="rlist">
+              <div class="rcard"><img class="rth" src="{{IMG:lesson1}}" alt=""><span class="rbody"><span class="rt2" id="hw-row2">—</span><span class="rmeta"><span data-source="lessons" data-field="wpm" data-row="1">—</span> 词/分 · <span data-source="lessons" data-field="segments" data-row="1">—</span> 段</span></span><span class="rd2"><span data-source="lessons" data-field="minutes" data-row="1">—</span>′</span></div>
+              <div class="rcard"><img class="rth" src="{{IMG:lesson2}}" alt=""><span class="rbody"><span class="rt2" id="hw-row3">—</span><span class="rmeta"><span data-source="lessons" data-field="wpm" data-row="2">—</span> 词/分 · <span data-source="lessons" data-field="segments" data-row="2">—</span> 段</span></span><span class="rd2"><span data-source="lessons" data-field="minutes" data-row="2">—</span>′</span></div>
+              <div class="rcard"><img class="rth" src="{{IMG:lesson3}}" alt=""><span class="rbody"><span class="rt2" id="hw-row4">—</span><span class="rmeta"><span data-source="lessons" data-field="wpm" data-row="3">—</span> 词/分 · <span data-source="lessons" data-field="segments" data-row="3">—</span> 段</span></span><span class="rd2"><span data-source="lessons" data-field="minutes" data-row="3">—</span>′</span></div>
+            </div>
           </div>
+          <div class="tabbar"><span class="tb on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15v-3.2a7.5 7.5 0 0 1 15 0V15"/><rect x="2.6" y="13.6" width="3.8" height="6" rx="1.9"/><rect x="17.6" y="13.6" width="3.8" height="6" rx="1.9"/></svg>精听</span><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.6h13v13.2H7.2A2.2 2.2 0 0 0 5 20V4.6z"/><path d="M18 17.8v1.6H7.2"/></svg>阅读<span class="dot"></span></span><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5h9M17 7.5h3M4 16.5h4M12 16.5h8"/><circle cx="15" cy="7.5" r="2.1"/><circle cx="10" cy="16.5" r="2.1"/></svg>设置</span></div>
         </div>
-          <div class="tabbar"><span class="tb on">精听</span><span class="tb">阅读</span><span class="tb">设置</span></div>
-        <p class="note">这个 tab 现在就能用：课程库、播放页都是 cherina-pod 自己生成的，这次一行不改。</p>
+        <p class="note">这个 tab 现在就能用：课程库、播放页都是 cherina-pod 自己生成的，这次一行不改。卡片结构已经和词间那张统一——左图右字、下面 chips、一颗主按钮；封面是每节课自己的图。</p>
       </figure>
 
       <figure>
@@ -271,13 +329,12 @@
             </div>
             <div class="hero tall">
               <div class="hero-top">
-                <img class="coverimg" src="{{COVER}}" alt="今天这篇的封面">
+                <img class="coverimg" id="hw-art-cover" src="{{COVER}}" alt="今天这篇的封面">
                 <div>
-                  <div class="hl">今天的一篇 · <span data-source="today" data-field="book" data-row="0">—</span></div>
+                  <div class="hl">今天的一篇</div>
                   <div class="ht" id="hw-art-title" style="font-size:11.5px">—</div>
                 </div>
               </div>
-              <div class="hp" id="hw-art-cn">—</div>
               <div class="chips">
                 <span class="chip"><span data-source="article" data-field="words" data-row="0">—</span> 词</span>
                 <span class="chip"><span data-source="article" data-field="paragraphs" data-row="0">—</span> 段</span>
@@ -288,37 +345,42 @@
             <p class="micro">近几篇</p>
             <div class="rlist" id="hw-recent" data-source="recent"></div>
           </div>
+          <div class="tabbar"><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15v-3.2a7.5 7.5 0 0 1 15 0V15"/><rect x="2.6" y="13.6" width="3.8" height="6" rx="1.9"/><rect x="17.6" y="13.6" width="3.8" height="6" rx="1.9"/></svg>精听</span><span class="tb on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.6h13v13.2H7.2A2.2 2.2 0 0 0 5 20V4.6z"/><path d="M18 17.8v1.6H7.2"/></svg>阅读</span><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5h9M17 7.5h3M4 16.5h4M12 16.5h8"/><circle cx="15" cy="7.5" r="2.1"/><circle cx="10" cy="16.5" r="2.1"/></svg>设置</span></div>
         </div>
-          <div class="tabbar"><span class="tb">精听</span><span class="tb on">阅读</span><span class="tb">设置</span></div>
         <p class="note">顶上那个 ↻ 是刷新：抓今天的短文，顺带刷新词表数字。列表是已抓回来过的篇目，今天那行标「今天」，点一行就打开旧文。</p>
       </figure>
 
       <figure>
         <figcaption>词间 · 交互 <span>长按与点词</span></figcaption>
-        <div class="phone">
+                <div class="phone bleed">
           <div class="scr">
-            <div class="masthead"><b>词间</b><span>Between the words</span></div>
             <div class="paper">
-              <div class="art-t" id="hw-art-title-2">—</div>
-              <div class="art-cn" id="hw-art-cn-2">—</div>
-              <p class="body-text" id="hw-excerpt">—</p>
-              <p class="sent-line body-text" style="margin-top:4px"><mark>Oysters were once food for the poor.</mark></p>
-              <div class="pop">
-                <div class="pk">译文 · 长按句子</div>
-                <div class="pt">生蚝曾经是穷人吃的食物。</div>
-                <div class="pa">点浮层外关闭 · 不压住被翻的句子</div>
-              </div>
-              <p class="sent-line body-text" style="margin-top:10px">Ancient Romans also <mark>dined</mark> on snails.</p>
-              <div class="pop word">
-                <div class="pk">Word · 点词</div>
-                <div class="pt"><b>dined</b> <span style="color:var(--ink2);font-size:8.5px">v. 进餐；用饭（dine 的过去式）</span></div>
-                <div class="pb done">已在生词本 · 移除</div>
+              <div class="art-t">What's That Lurking in the Mist? Inside the Eerie Science of Bogs</div>
+              <div class="art-cn">走进自然，揭开沼泽的神秘面纱</div>
+              <p class="body-text" id="hw-excerpt" hidden>—</p>
+              <div class="art-body" id="hw-art-body">
+                <!--ARTICLE-BODY:START-->
+                <p class="body-text">Bogs are rich in storied horror, and the wetlands of eastern England are no exception.</p>
+                <p class="body-text">The phantom lights of the will o' the wisp; <mark>the devil-dog Black Shuck lurking in the mist</mark>; strange rings where fairies dance, witchcraft rules, and only fools trespass — tales of the area are fraught with supernatural peril.</p>
+                <div class="pop glass">
+                  <div class="pk">译文 · 长按句子</div>
+                  <div class="pt">在雾中出没的魔犬「黑夏克」。</div>
+                  <div class="pa">点浮层外关闭 · 打开另一个时先关这个</div>
+                </div>
+                <p class="body-text">The Fens, as they're called locally, are not alone. Similar wetlands are found across the globe, each with a name that has a subtly different meaning.</p>
+                <p class="body-text">Bogs and fens (bogs are more acidic) are formed in lake basins, created by glaciers receding during the last ice age, and are now filled with rotting and decayed plant matter called peat. This is often capped with sphagnum moss, making the ground soft and treacherous.</p>
+                <p class="body-text">Marshes, meanwhile, are flooded areas near rivers and coasts, the surface peppered with reeds and soft-stalked shrubs. Substitute these herbaceous plants for woody stumps and trees, and you have a swamp.</p>
+                <p class="body-text">Regardless of what they're called, these realms are a fertile ground for our ghostly folklore.</p>
+                <p class="body-text">Fog is one of the most formidable dangers in a bog.</p>
+                <p class="body-text">"If you have enough relative humidity — water in the air — you get condensation onto aerosol particles," says Nadine Borduas-Dedekind, an atmospheric chemist at the University of British Columbia, Canada. "If you went to the Arctic, you'd never see fog as there are very few particles in the air. But in a swamp, there's biogenic material and water spray."</p>
+                <p class="body-text">The main culprits for this fog are volatile organic compounds — small particles given off by plants that quickly evaporate. These, Borduas-Dedekind explains, oxidize in the air, forming larger molecules that can easily absorb water and form clouds.</p>
+                <!--ARTICLE-BODY:END-->
               </div>
             </div>
           </div>
+          <div class="tabbar"><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15v-3.2a7.5 7.5 0 0 1 15 0V15"/><rect x="2.6" y="13.6" width="3.8" height="6" rx="1.9"/><rect x="17.6" y="13.6" width="3.8" height="6" rx="1.9"/></svg>精听</span><span class="tb on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.6h13v13.2H7.2A2.2 2.2 0 0 0 5 20V4.6z"/><path d="M18 17.8v1.6H7.2"/></svg>阅读</span><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5h9M17 7.5h3M4 16.5h4M12 16.5h8"/><circle cx="15" cy="7.5" r="2.1"/><circle cx="10" cy="16.5" r="2.1"/></svg>设置</span></div>
         </div>
-          <div class="tabbar"><span class="tb">精听</span><span class="tb on">阅读</span><span class="tb">设置</span></div>
-        <p class="note">两个手势都是贴着文字的浮层：长按句子=整句翻译，点单词=释义加生词本按钮。浮层都避开被点的那一句或那个词，同一个时刻只开一个。</p>
+        <p class="note">两个手势都是贴着文字的浮层：长按句子=整句翻译，点单词=释义加生词本按钮。浮层都避开被点的那一句或那个词，同一个时刻只开一个。这张图用 10/31 那篇真实文章（20 段）演示，正文一直滚到底栏下面，才能看出玻璃在文字上是什么样。</p>
       </figure>
 
       <figure>
@@ -337,13 +399,9 @@
               <div class="field-s">sk-············</div>
               <div class="row2"><div class="btn-s pri">保存</div><div class="btn-s">清除密钥</div></div>
             </div>
-            <div class="card-s">
-              <h3>课程库</h3>
-              <p><span data-source="lessonTotals" data-field="value" data-where="metric=课程">—</span> 节课 · <span data-source="lessonTotals" data-field="value" data-where="metric=总时长">—</span> 分钟</p>
-            </div>
           </div>
+          <div class="tabbar"><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15v-3.2a7.5 7.5 0 0 1 15 0V15"/><rect x="2.6" y="13.6" width="3.8" height="6" rx="1.9"/><rect x="17.6" y="13.6" width="3.8" height="6" rx="1.9"/></svg>精听</span><span class="tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.6h13v13.2H7.2A2.2 2.2 0 0 0 5 20V4.6z"/><path d="M18 17.8v1.6H7.2"/></svg>阅读<span class="dot"></span></span><span class="tb on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5h9M17 7.5h3M4 16.5h4M12 16.5h8"/><circle cx="15" cy="7.5" r="2.1"/><circle cx="10" cy="16.5" r="2.1"/></svg>设置</span></div>
         </div>
-          <div class="tabbar"><span class="tb">精听</span><span class="tb">阅读</span><span class="tb on">设置</span></div>
         <p class="note">省掉列表，其余照骨架：卡片十六圆角、白底、0.5px 描边。</p>
       </figure>
 
@@ -352,7 +410,7 @@
 
   <section>
     <h2>浮层的位置规则</h2>
-    <p class="sub">句子和单词用同一套规则：先试下方，放不下就翻到上方，被点的那一段永远保持可见。</p>
+    <p class="sub">只有一条硬规则：被点的那一句（或那个词）不能被浮层压住。别的句子被压住没关系，正文也不为浮层让位。</p>
     <div class="card">
       <div class="flips">
         <div>
@@ -370,11 +428,24 @@
           </div>
         </div>
       </div>
+      <div class="flips" style="margin-top:1rem">
+        <div>
+          <p class="sub" style="margin-bottom:.45rem">点单词 → 更窄的浮层，同一条规则</p>
+          <div class="slice">
+            <p>Ancient Romans also <span class="hl2">dined</span> on snails, and spread their eating habits across their empire.</p>
+            <div class="pv below" style="left:9px;right:auto;width:72%">
+              <b style="font-weight:600">dined</b> v. 进餐；用饭<br>
+              <span style="display:inline-block;margin-top:4px;font-size:8px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #AEAEB2">已在生词本 · 移除</span>
+            </div>
+          </div>
+          <p class="note">不在生词本时，这颗按钮是蓝底「加入生词本」；点一下加，再点一下移除。</p>
+        </div>
+      </div>
       <ul class="q">
-        <li>水平方向从被点文字的左边缘开始，超出一边就往回收，始终留一屏边距。</li>
-        <li>词的浮层比句子的窄（最多七成宽），同样先试下方再翻上方；一个时刻只开一个浮层，点别处就关。</li>
-        <li>两边都放不下时，浮层压到旁边的段落上，但被点的那一句或那个词仍在视野里，点浮层外即关。</li>
-        <li>滚动文章时浮层跟着它走；它滚出屏幕就关掉，不留一个飘在半空的框。</li>
+        <li>先试被点那一句的下方；下方放不下就翻到上方。两个方向都只为一件事：别压住那一句。</li>
+        <li>压到别的句子、段落、分隔线都可以——正文不重排，读的人不会因为点了上面一句，下面的文字就跳走。</li>
+        <li>词的浮层比句子的窄（最多七成宽），规则一样；一个时刻只开一个浮层，点别处就关。</li>
+        <li>滚动时浮层跟着被点的那一句走；那一句滚出屏幕就关掉，不留一个飘在半空的框。</li>
       </ul>
     </div>
   </section>
@@ -436,6 +507,22 @@
   </section>
 
   <section>
+    <h2>对照 HIG 校正了什么</h2>
+    <p class="sub">按 <code>hig-components-layout</code> 和 <code>hig-components-dialogs</code> 两条 skill 逐条对过。</p>
+    <div class="card">
+      <ul class="q">
+        <li><b>tab bar 只做导航，不放动作。</b>之前导入、设置两个按钮挤在底栏里，那是动作不是页面——现在底栏只有三个页面，导入回到精听顶行。</li>
+        <li><b>每个 tab 都要有图标和标签。</b>只写汉字不够好认，现在耳机／书／滑块三个线框图标加小字。</li>
+        <li><b>不要隐藏或禁用 tab。</b>三个 tab 常驻，导入按钮也不再跟着 tab 藏起来。</li>
+        <li><b>一次只开一个浮层。</b>原来交互图里句子浮层和词浮层同时出现，不合 HIG；现在一张图只演一个状态。</li>
+        <li><b>浮层别做大、点外面就关、别在浮层上再盖东西。</b>两个浮层都限宽、无遮罩、无嵌套。</li>
+        <li><b>保留的偏离：</b>HIG 说 iOS 紧凑视图里尽量别用 popover。这里是有意为之——文章很长，用底部 sheet 会盖住正在读的那一句，而这条产品的主要动作就是「边读边查」。所以在紧凑宽度里也用锚定浮层，并靠「避开被点文字 + 跟随滚动」补回可控性。</li>
+        <li><b>悬浮玻璃导航。</b>纯 CSS，和 <code>web/shell.css</code> 里那套完全一致：背景模糊加饱和、用遮罩画出的边缘高光、一层极淡的颗粒（不然大面积模糊会出色带）、选中项是一块自己会滑动的玻璃。底栏只放页面，导入这种动作单独浮在右上角。对低透明度偏好和没有 <code>backdrop-filter</code> 的浏览器都会退回不透明底。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
     <h2>还需要你定的两件事</h2>
     <div class="card">
       <ul class="q">
@@ -487,9 +574,6 @@
       }
       if (art) {
         setText('#hw-art-title', art.title);
-        setText('#hw-art-cn', art.title_cn);
-        setText('#hw-art-title-2', art.title);
-        setText('#hw-art-cn-2', art.title_cn);
         setText('#hw-excerpt', art.excerpt);
       }
 
@@ -527,15 +611,28 @@
       const host = $('#hw-recent');
       if (!host) return;
       host.replaceChildren();
+      // Today's row is the same piece as the hero, so it shows that piece's real cover.
+      const todayCover = $('#hw-art-cover')?.getAttribute('src') || '';
       for (const row of rows.slice(0, 3)) {
         const card = document.createElement('div');
         card.className = 'rcard';
-        const thumb = document.createElement('div');
-        thumb.className = 'rth';
+        // Only today's piece has a cover we can show; the rest carry their real numbers instead.
+        if (row.state === '今天' && todayCover) {
+          const thumb = document.createElement('img');
+          thumb.className = 'rth';
+          thumb.setAttribute('src', todayCover);
+          card.append(thumb);
+        }
+        const body = document.createElement('span');
+        body.className = 'rbody';
         const title = document.createElement('span');
         title.className = 'rt2';
         title.textContent = row.title;
-        card.append(thumb, title);
+        const meta = document.createElement('span');
+        meta.className = 'rmeta';
+        meta.textContent = `${row.words} 词 · ${row.paragraphs} 段`;
+        body.append(title, meta);
+        card.append(body);
         if (row.state === '今天') {
           const state = document.createElement('span');
           state.className = 'rs2';

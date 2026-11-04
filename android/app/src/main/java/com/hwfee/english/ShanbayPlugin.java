@@ -1,6 +1,7 @@
 package com.hwfee.english;
 
 import android.content.Intent;
+import android.webkit.CookieManager;
 
 import androidx.activity.result.ActivityResult;
 
@@ -10,6 +11,8 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Shanbay transport.
@@ -26,6 +29,8 @@ public class ShanbayPlugin extends Plugin {
 
     private static final String COOKIE = "shanbay.cookie";
     private final ShanbayClient client = new ShanbayClient();
+    // Capacitor has one plugin thread: network waits here must not delay audio controls or chrome.
+    private static final ExecutorService REQUESTS = Executors.newFixedThreadPool(4);
 
     @PluginMethod
     public void setCookie(PluginCall call) {
@@ -48,17 +53,24 @@ public class ShanbayPlugin extends Plugin {
 
     @PluginMethod
     public void hasCookie(PluginCall call) {
-        JSObject out = new JSObject();
-        out.put("has", Vault.has(getContext(), COOKIE));
-        call.resolve(out);
+        try {
+            JSObject out = new JSObject();
+            out.put("has", Vault.has(getContext(), COOKIE));
+            out.put("sessionScope", new SentenceService.Settings(Vault.get(getContext(), COOKIE), null,
+                    new LlmClient.Config(null, null)).scope);
+            call.resolve(out);
+        } catch (Exception error) { call.reject("读取登录态失败，请重试", "STORAGE_ERROR"); }
     }
 
     @PluginMethod
     public void clearCookie(PluginCall call) {
         Vault.remove(getContext(), COOKIE);
-        JSObject out = new JSObject();
-        out.put("cleared", true);
-        call.resolve(out);
+        getActivity().runOnUiThread(() -> CookieManager.getInstance().removeAllCookies(removed -> {
+            CookieManager.getInstance().flush();
+            JSObject out = new JSObject();
+            out.put("cleared", true);
+            call.resolve(out);
+        }));
     }
 
     /** Opens the Shanbay login page in-app; the activity stores the captured cookie itself. */
@@ -93,7 +105,7 @@ public class ShanbayPlugin extends Plugin {
         }
         String method = call.getString("method", "GET");
         JSObject body = call.getObject("body");
-        getBridge().execute(() -> {
+        REQUESTS.execute(() -> {
             try {
                 String text = client.request(method, path, body == null ? null : body.toString(), cookie);
                 JSObject out = new JSObject();

@@ -7,7 +7,6 @@
   "type": "commonjs",
   "dependencies": {
     "@capacitor/android": "^7.6.10",
-    "@capacitor/cli": "^7.6.10",
     "@capacitor/core": "^7.6.10"
   },
   "scripts": {
@@ -17,6 +16,21 @@
     "test": "npm run test:web && node tools/android-build.mjs :app:testDebugUnitTest",
     "test:web": "node --test",
     "test:android": "node tools/android-build.mjs :app:testDebugUnitTest",
-    "lint:android": "node tools/android-build.mjs :app:lintDebug"
+    "lint:android": "node tools/android-build.mjs :app:lintDebug",
+    "assets:generate": "node tools/generate-brand-assets.mjs",
+    "assets:check": "node tools/check-brand-assets.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.6.10",
+    "@resvg/resvg-js": "2.6.2",
+    "jsdom": "26.1.0"
+  },
+  "overrides": {
+    "rimraf": {
+      "glob": "14.0.2"
+    },
+    "glob": {
+      "minimatch": "11.0.1"
+    }
   }
 }

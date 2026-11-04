@@ -4,12 +4,14 @@ Everything below runs from the project root unless stated.
 
 ## Prerequisites
 
+Listening generation, the migrated source material, unified 39-lesson package and progress migration are in [LISTENING.md](LISTENING.md). Course production no longer depends on the old desktop `English-listening` directory.
+
 - Node.js 20+ (and npm).
 - Java 21. Set `JAVA_HOME` to the JDK 21 installation, or make Java 21 the `java` on
   `PATH`. Gradle uses that installation by default. For a machine-specific override, put
   `org.gradle.java.home=/path/to/jdk-21` in `~/.gradle/gradle.properties` (on Windows, use
   the JDK path with forward slashes), or pass `-Dorg.gradle.java.home=/path/to/jdk-21`.
-- Android SDK platform 35 and build tools 34.0.0 (AGP's default). Set `ANDROID_HOME`
+- Android SDK platform `android-37.0` and build tools 36.0.0 or newer (AGP 9.1). Set `ANDROID_HOME`
   (or `ANDROID_SDK_ROOT`) if the SDK is not in its standard location.
 
 The Gradle wrapper launcher selects `gradlew.bat` on Windows and `gradlew` on Linux/macOS.
@@ -22,6 +24,7 @@ npm ci
 pwsh -File tools/sync-web.ps1
 npx cap sync android
 npm run apk                       # -> android/app/build/outputs/apk/debug/app-debug.apk
+npm run apk:release               # -> android/app/build/outputs/apk/release/app-release.apk (local signing key required)
 npm test                          # Node data-layer tests + native/Robolectric unit tests
 npm run lint:android              # Android compatibility and correctness checks
 ```
@@ -47,10 +50,35 @@ from Maven; no Shanbay account, LLM key, emulator, or release signing key is req
 environment, both Gradle and its test JVM need the configured proxy and CA trust for those runtime
 downloads. Keep localhost excluded from the proxy so the mock servers remain local.
 
-The default translation provider is DeepSeek. Custom Android provider base URLs must use HTTPS,
+Sentence analysis and translation use Shanbay SSE first, with a personal API as fallback. DeepSeek
+is the default fallback provider. Custom Android provider base URLs must use HTTPS,
 without credentials, query parameters, or fragments. Clearing the base URL/model fields restores
 the defaults; updating only a key through the native API preserves the existing base URL/model.
+Changing the base URL while a key exists requires re-entering the destination provider's key.
 The translation tests use local HTTP fixtures and never call a paid provider.
+
+Translation caching, daily pretranslation and the structured long-sentence backend are documented
+in [llm-api.md](llm-api.md); the Settings usage backend is in [usage-api.md](usage-api.md).
+The separate [DeepSeek balance query](deepseek-balance-api.md) uses the saved official provider key.
+Run both web and native tests after changing that shared path. The user authorized the 1.0.4 release
+after live endpoint checks; see [the validation record](VALIDATION-1.0.4-2026-11-03.md). The
+[1.0.5 follow-up](VALIDATION-1.0.5-2026-11-03.md) adds analysis preparation and stable sentence cards.
+The [1.0.7 count verification](VALIDATION-1.0.7-2026-11-03.md) records official collection/current-book
+mastery sources, persistent totals, and smooth dashboard updates after confirmed wordbook edits.
+The [1.0.8 verification](VALIDATION-1.0.8-2026-11-04.md) covers independent quota refresh at zero,
+complete grammatical coverage, invalidation of partial analysis caches, and punctuation display.
+The [1.0.9 delivery](VALIDATION-1.0.9-2026-11-04.md) covers the UI rollback, appearance switch,
+saved-sentence playback and refresh, bounded bilingual cards, and compatible reimport of 39 revised lessons.
+
+Regenerate app icons and splash resources with `npm run assets:generate`, then validate the five
+PNG densities and adaptive/monochrome resources with `npm run assets:check`. See
+`assets/brand/README.md` for the drawing, tokens and Android resource map. Capacitor defaults are
+removed by the generator; run `npx cap sync android` after changing the web favicon.
+
+WebView debugging follows the Android build flag: debug APKs expose CDP; signed release APKs do
+not. Private data, the login WebView cookie jar, and the vault are excluded from Android backup
+and device transfer. Disconnecting Shanbay clears both the vault entry and the WebView cookies.
+Only import trusted cherina-pod lessons: their JavaScript shares the app origin and native bridge.
 
 ## Emulator
 

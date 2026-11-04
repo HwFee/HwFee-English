@@ -64,6 +64,57 @@ test('online state persists today shape and article for later offline reading', 
   assert.ok(storage.getItem('hwfee:article:' + todayDate()));
 });
 
+test('saved reader state is readable without network and uses the latest local article', async () => {
+  const { storage, bridge } = await setup();
+  const online = await bridge.loadState();
+  const edited = { ...online.article, paragraphs: ['Latest local text.'] };
+  storage.setItem('hwfee:article:' + online.today.date, JSON.stringify(edited));
+  window.top.Capacitor.Plugins.Shanbay = offlinePlugin();
+  assert.deepEqual(bridge.cachedState().article, edited);
+});
+
+test('an account change cannot restore the previous account daily state or reuse its current article', async () => {
+  const healthy = successPlugin();
+  let account = 'account-a', articleRequests = 0;
+  const { bridge } = await setup({ ...healthy,
+    hasCookie: async () => ({ has: true, sessionScope: account }),
+    request: args => { if (args.path.startsWith('/news/articles/')) articleRequests++; return healthy.request(args); },
+  });
+  await bridge.hasSession();
+  await bridge.loadState();
+  assert.ok(bridge.cachedState());
+  account = 'account-b';
+  await bridge.hasSession();
+  assert.equal(bridge.cachedState(), null);
+  await bridge.loadState();
+  assert.equal(articleRequests, 2, 'the current article must be resolved for the newly connected account');
+});
+
+test('unavailable local storage does not prevent loading an article online', async () => {
+  const healthy = successPlugin();
+  const { bridge, storage } = await setup({ ...healthy,
+    hasCookie: async () => ({ has: true, sessionScope: 'account-a' }),
+  });
+  await bridge.hasSession();
+  storage.getItem = storage.setItem = () => { throw new Error('storage blocked'); };
+  assert.equal((await bridge.loadState()).article.title, 'Offline capable');
+});
+
+test('startup requests are shared and repeated forced refreshes queue one fresh fetch after startup', async () => {
+  const healthy = successPlugin();
+  let books = 0, articles = 0;
+  const { bridge } = await setup({ ...healthy, request: args => {
+    if (args.path === '/wordsapp/user_material_books/current') books++;
+    if (args.path.startsWith('/news/articles/')) articles++;
+    return healthy.request(args);
+  } });
+  const initial = bridge.loadState();
+  assert.equal(bridge.loadState(), initial);
+  await Promise.all([initial, bridge.loadState({ force: true }), bridge.loadState({ force: true })]);
+  assert.equal(books, 2);
+  assert.equal(articles, 2, 'one initial fetch followed by one genuine forced refresh');
+});
+
 test('network failure returns the last successful state with its original date and counts', async () => {
   const { bridge } = await setup();
   const online = await bridge.loadState();
@@ -178,6 +229,178 @@ test('bridge timeout is a network error and its timer is cleared after fallback'
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
   }
+});
+
+test('fetched articles keep an https thumbnail as cover and ignore other schemes', async (t) => {
+  for (const [name, thumbnails, expected] of [
+    ['https thumbnail kept', ['https://img.example.com/cover.jpg'], 'https://img.example.com/cover.jpg'],
+    ['http thumbnail dropped', ['http://img.example.com/cover.jpg'], undefined],
+    ['non-string thumbnail dropped', [42], undefined],
+    ['no thumbnails', undefined, undefined],
+  ]) {
+    await t.test(name, async () => {
+      const plugin = successPlugin();
+      const { storage, bridge } = await setup({
+        ...plugin,
+        request: ({ path, ...rest }) => path === '/news/articles/article-1?source=1'
+          ? Promise.resolve({ body: JSON.stringify({
+              id: 'article-1', title_en: 'Titled', title_cn: '标题', date: todayDate(),
+              content: '<para><sent>Body.</sent></para>',
+              ...(thumbnails ? { thumbnail_urls: thumbnails } : {}),
+            }) })
+          : plugin.request({ path, ...rest }),
+      });
+      await bridge.loadState();
+      const stored = JSON.parse(storage.getItem('hwfee:article:' + todayDate()));
+      assert.equal(stored.cover, expected);
+    });
+  }
+});
+
+test('cachedArticles exposes words/paragraphs/cover and cachedArticle returns the validated entry', async () => {
+  const { storage, bridge } = await setup();
+  const article = {
+    date: todayDate(), title: 'Readable', subtitle: '可读',
+    paragraphs: ['One two three.', 'Four five.'],
+    cover: 'https://img.example.com/c.jpg',
+  };
+  storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+
+  assert.deepEqual(bridge.cachedArticles(), [{
+    date: article.date, title: 'Readable', words: 5, paragraphs: 2, cover: article.cover,
+  }]);
+  assert.equal(bridge.cachedArticle(article.date).title, 'Readable');
+  assert.equal(bridge.cachedArticle('1999-01-01'), null);
+});
+
+test('cached entries with malformed covers are rejected', async (t) => {
+  for (const [name, cover] of [
+    ['http url', 'http://img.example.com/c.jpg'],
+    ['non-url string', 'not a url'],
+    ['non-string', 42],
+  ]) {
+    await t.test(name, async () => {
+      const { storage, bridge } = await setup();
+      const article = {
+        date: todayDate(), title: 'Readable', subtitle: '可读',
+        paragraphs: ['One.'], cover,
+      };
+      storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+      assert.deepEqual(bridge.cachedArticles(), []);
+      assert.equal(bridge.cachedArticle(article.date), null);
+    });
+  }
+});
+
+function legacyArticle(daysAgo = 0, id = 'article-1') {
+  const date = new Date(Date.parse(todayDate() + 'T00:00:00Z') - daysAgo * 86400000).toISOString().slice(0, 10);
+  return {
+    date, title: 'Saved article', subtitle: '保存的文章',
+    source: 'https://web.shanbay.com/reading/web-news/articles/' + id,
+    paragraphs: ['Keep the saved paragraphs.'],
+    associationWords: ['saved'], matchedTodayWords: ['paragraph'],
+  };
+}
+
+test('missing covers are repaired for old and current cached articles without replacing their text', async () => {
+  const calls = [];
+  const cover = 'https://img.example.com/restored.jpg';
+  const { storage, bridge } = await setup({
+    request: async ({ path }) => {
+      calls.push(path);
+      return { body: JSON.stringify({ title_en: 'Changed remotely', content: 'Different text', thumbnail_urls: [cover] }) };
+    },
+  });
+  const current = legacyArticle();
+  const older = legacyArticle(1, 'older-article');
+  for (const article of [current, older]) storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+  const last = { today: { date: current.date, book: 'CET4', status: { date: current.date } }, article: current };
+  storage.setItem(LAST_STATE_KEY, JSON.stringify(last));
+
+  const pending = bridge.backfillArticleCovers();
+  assert.equal(bridge.backfillArticleCovers(), pending, 'concurrent callers share the same repair');
+  assert.equal(await pending, 2);
+  for (const article of [current, older]) assert.deepEqual(bridge.cachedArticle(article.date), { ...article, cover });
+  assert.deepEqual(JSON.parse(storage.getItem(LAST_STATE_KEY)), { ...last, article: { ...current, cover } });
+  assert.deepEqual(calls, ['/news/articles/article-1?source=1', '/news/articles/older-article?source=1']);
+  assert.equal(await bridge.backfillArticleCovers(), 0);
+  assert.equal(calls.length, 2, 'saved covers are not fetched again');
+});
+
+test('cover repair preserves readable articles when offline and retries after reconnection', async () => {
+  const { storage, bridge } = await setup(offlinePlugin());
+  const article = legacyArticle(1);
+  storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+
+  assert.equal(await bridge.backfillArticleCovers(), 0);
+  assert.deepEqual(bridge.cachedArticle(article.date), article);
+  const cover = 'https://img.example.com/reconnected.jpg';
+  window.top.Capacitor.Plugins.Shanbay = {
+    request: async () => ({ body: JSON.stringify({ thumbnail_urls: [cover] }) }),
+  };
+  assert.equal(await bridge.backfillArticleCovers(), 1);
+  assert.equal(bridge.cachedArticle(article.date).cover, cover);
+});
+
+test('cover repair ignores unsafe or absent thumbnails and unrecognized article sources', async (t) => {
+  for (const [name, source, thumbnails, requests] of [
+    ['http cover', undefined, ['http://img.example.com/cover.jpg'], 1],
+    ['missing cover', undefined, undefined, 1],
+    ['invalid cover type', undefined, [42], 1],
+    ['external source', 'https://example.com/reading/web-news/articles/article-1', [], 0],
+    ['http source', 'http://web.shanbay.com/reading/web-news/articles/article-1', [], 0],
+    ['invalid article path', 'https://web.shanbay.com/reading/web-news/articles/a/b', [], 0],
+  ]) {
+    await t.test(name, async () => {
+      let called = 0;
+      const { storage, bridge } = await setup({
+        request: async () => { called++; return { body: JSON.stringify({ thumbnail_urls: thumbnails }) }; },
+      });
+      const article = { ...legacyArticle(), ...(source ? { source } : {}) };
+      storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+      assert.equal(await bridge.backfillArticleCovers(), 0);
+      assert.equal(called, requests);
+      assert.deepEqual(bridge.cachedArticle(article.date), article);
+    });
+  }
+});
+
+test('late cover responses do not restore cleared articles or overwrite replacements', async (t) => {
+  for (const action of ['clear', 'replace', 'edit']) {
+    await t.test(action, async () => {
+      let respond;
+      const { storage, bridge } = await setup({ request: () => new Promise((resolve) => { respond = resolve; }) });
+      const article = legacyArticle();
+      const key = 'hwfee:article:' + article.date;
+      storage.setItem(key, JSON.stringify(article));
+      const pending = bridge.backfillArticleCovers();
+      const replacement = { ...article, title: 'New local title', paragraphs: ['New local paragraph.'] };
+      if (action === 'clear') storage.removeItem(key);
+      else {
+        if (action === 'replace') replacement.source = 'https://web.shanbay.com/reading/web-news/articles/replacement';
+        storage.setItem(key, JSON.stringify(replacement));
+      }
+      const cover = 'https://img.example.com/late.jpg';
+      respond({ body: JSON.stringify({ thumbnail_urls: [cover] }) });
+      assert.equal(await pending, action === 'edit' ? 1 : 0);
+      assert.deepEqual(bridge.cachedArticle(article.date), action === 'clear' ? null : {
+        ...replacement, ...(action === 'edit' ? { cover } : {}),
+      });
+    });
+  }
+});
+
+test('cover repair requests only the ten visible recent articles', async () => {
+  const calls = [];
+  const { storage, bridge } = await setup({
+    request: async ({ path }) => { calls.push(path); return { body: JSON.stringify({ thumbnail_urls: ['https://img.example.com/cover.jpg'] }) }; },
+  });
+  for (let i = 0; i < 12; i++) {
+    const article = legacyArticle(i, 'saved-' + i);
+    storage.setItem('hwfee:article:' + article.date, JSON.stringify(article));
+  }
+  assert.equal(await bridge.backfillArticleCovers(), 10);
+  assert.deepEqual(calls, Array.from({ length: 10 }, (_, i) => `/news/articles/saved-${i}?source=1`));
 });
 
 test('successful bridge calls clear their timeout timers', async () => {

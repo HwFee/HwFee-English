@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchVocabulary, validateVocabularyCache } from '../web/read/vocab.mjs';
+import { fetchVocabulary, fetchVocabularyWithCounts, validateVocabularyCache, validateVocabularyCounts, wordbookMembership } from '../web/read/vocab.mjs';
+
+test('wordbook status matches the requested id and rejects missing or invalid answers', () => {
+  assert.equal(wordbookMembership({ objects: [
+    { vocab_id: 'other', exists: true }, { vocab_id: 'target', exists: false },
+  ] }, 'target'), false);
+  assert.throws(() => wordbookMembership({ objects: [] }, 'target'), /没有返回/);
+  assert.throws(() => wordbookMembership({ objects: [{ vocab_id: 'target', exists: 'false' }] }, 'target'), /没有返回/);
+  assert.throws(() => wordbookMembership({}, 'target'), /格式无效/);
+});
 
 class FakeStorage {
   values = new Map();
@@ -79,6 +88,50 @@ test('rejects malformed, expired, and future vocabulary caches safely', () => {
   assert.equal(validateVocabularyCache({ at: 1, entries: [['old', 1]] }, options), null);
   assert.equal(validateVocabularyCache({ at: 10_001, entries: [['future', 1]] }, options), null);
   assert.equal(validateVocabularyCache({ at: 9_000, entries: [null] }, options), null);
+});
+
+test('fetchVocabularyWithCounts counts distinct headwords per category, not variants', async () => {
+  const { entries, counts } = await fetchVocabularyWithCounts(async () => ({
+    total: 3,
+    vocabs: [
+      { vocab: 'Shared', categories: 1, variants: ['Foo'] },
+      { vocab: 'SHARED', categories: 2 },
+      { vocab: 'Solo', categories: 4, variants: ['Solos'] },
+    ],
+  }));
+
+  assert.deepEqual(new Map(entries), new Map([['shared', 3], ['foo', 1], ['solo', 4], ['solos', 4]]));
+  assert.deepEqual(counts, { today: 1, wordbook: 1, learned: 1, unlearned: 0 });
+});
+
+test('validateVocabularyCounts accepts four non-negative integers and rejects the rest', () => {
+  assert.deepEqual(
+    validateVocabularyCounts({ today: 1, wordbook: 2, learned: 3, unlearned: 0 }),
+    { today: 1, wordbook: 2, learned: 3, unlearned: 0 });
+  assert.equal(validateVocabularyCounts({ today: 1, wordbook: 2, learned: 3 }), null);
+  assert.equal(validateVocabularyCounts({ today: 1, wordbook: -2, learned: 3, unlearned: 0 }), null);
+  assert.equal(validateVocabularyCounts({ today: 1.5, wordbook: 2, learned: 3, unlearned: 0 }), null);
+  assert.equal(validateVocabularyCounts(null), null);
+  assert.equal(validateVocabularyCounts('counts'), null);
+});
+
+test('highlight counts never become dashboard totals or survive as official cached totals', async () => {
+  const storage = new FakeStorage();
+  globalThis.localStorage = storage;
+  const payload = { total: 2, vocabs: [{ vocab: 'one', categories: 1 }, { vocab: 'two', categories: 2 }] };
+  globalThis.window = { top: { Capacitor: { Plugins: { Shanbay: {
+    request: async () => ({ body: JSON.stringify(payload) }),
+  } } } } };
+  const gestures = await import(`../web/read/gestures.mjs?case=${Math.random()}`);
+
+  assert.equal(await gestures.loadHighlightVocab({ force: true }), 2);
+  assert.equal(gestures.vocabCounts(), null);
+  assert.equal(JSON.parse(storage.getItem('hwfee:vocab')).counts, null);
+
+  // Records written before counts existed stay valid; their counts are just null.
+  storage.setItem('hwfee:vocab', JSON.stringify({ at: Date.now(), entries: [['old', 3]] }));
+  assert.equal(await gestures.loadHighlightVocab(), 1);
+  assert.equal(gestures.vocabCounts(), null);
 });
 
 test('detects repeated/stalled and malformed pagination', async () => {

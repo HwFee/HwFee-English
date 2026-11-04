@@ -1,0 +1,3 @@
+# 可选依赖：所有脚本只用标准库即可运行
+# 繁→简转换：translate.py 可选依赖，缺失时跳过转换（但 opencode-go 偶发输出繁体，建议安装）
+opencc-python-reimplemented

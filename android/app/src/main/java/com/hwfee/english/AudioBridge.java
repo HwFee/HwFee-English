@@ -34,7 +34,7 @@ public final class AudioBridge {
 
     /** The player lives in the listen tab's iframe, so every command goes through that window. */
     private static String shim(String call) {
-        return "(function(){try{var f=document.getElementById('listenFrame');"
+        return "(function(){try{var f=document.getElementById('playerFrame')||document.getElementById('listenFrame');"
                 + "var a=f&&f.contentWindow&&f.contentWindow.__hwfeeAudio;"
                 + "if(a)" + call + ";}catch(e){}})()";
     }
@@ -49,6 +49,10 @@ public final class AudioBridge {
 
     public static void evalPause() {
         eval(shim("a.pause()"));
+    }
+
+    public static void evalForeground() {
+        eval(shim("a.foreground&&a.foreground()"));
     }
 
     public static void evalSeekTo(double seconds) {

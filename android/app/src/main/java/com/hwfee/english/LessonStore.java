@@ -19,6 +19,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -76,11 +78,30 @@ public class LessonStore {
         List<File> ordered = new ArrayList<>();
         if (entries != null) ordered.addAll(Arrays.asList(entries));
         Collections.sort(ordered, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        Set<String> superseded = new HashSet<>();
         for (File dir : ordered) {
+            try {
+                JSONObject meta = new JSONObject(readText(new File(dir, "meta.json"), 1 << 20));
+                JSONArray aliases = meta.optJSONArray("legacyIds");
+                if (aliases != null) for (int i = 0; i < aliases.length(); i++) superseded.add(aliases.getString(i));
+            } catch (Exception ignored) { }
+        }
+        for (File dir : ordered) {
+            if (superseded.contains(dir.getName())) continue;
             File meta = new File(dir, "meta.json");
             if (!meta.isFile()) continue;
             try {
-                lessons.put(new JSONObject(readText(meta, 1 << 20)));
+                JSONObject lesson = new JSONObject(readText(meta, 1 << 20));
+                String image = lesson.optString("image", "");
+                if (!image.isEmpty()) {
+                    // A ZIP owns its images beside player.html; library.html lives elsewhere.
+                    try {
+                        lesson.put("image", new java.net.URI("/lessons/" + dir.getName() + "/").resolve(image).toString());
+                    } catch (IllegalArgumentException ignored) {
+                        // A bad optional cover must never remove the lesson from the library.
+                    }
+                }
+                lessons.put(lesson);
             } catch (Exception ignored) {
                 // a half-written import must not take the whole library down
             }
@@ -214,9 +235,9 @@ public class LessonStore {
         JSONObject data = lessonData(player);
         if (data == null) throw new IOException("无法读取课程数据");
         String relative = staging.toURI().relativize(lessonDir.toURI()).getPath().replaceAll("/$", "");
-        String id = sanitize(relative.replace('/', '-'));
+        String id = importId(relative, data);
         if (report.imported.contains(id)) throw new IOException("压缩包内课程 ID 重复");
-        writeMeta(new File(lessonDir, "meta.json"), id, data, levelLabel(relative));
+        writeMeta(new File(lessonDir, "meta.json"), id, data, data.has("hwfeeCourse") ? null : levelLabel(relative));
         new LessonInstaller(root).install(lessonDir, id);
         report.imported.add(id);
     }
@@ -226,7 +247,7 @@ public class LessonStore {
         JSONObject data = lessonData(file);
         if (data == null) throw new IOException("无法读取课程数据");
         String relative = staging.toURI().relativize(file.toURI()).getPath();
-        String id = sanitize(relative.replace('/', '-').replaceAll("\\.html$", ""));
+        String id = importId(relative.replaceAll("\\.html$", ""), data);
         if (id.isEmpty()) id = sanitize(baseName);
         if (report.imported.contains(id)) throw new IOException("压缩包内课程 ID 重复");
         File prepared = new File(staging, ".prepared-" + UUID.randomUUID());
@@ -234,7 +255,7 @@ public class LessonStore {
         try {
             File player = new File(prepared, "player.html");
             if (!file.renameTo(player)) throw new IOException("无法准备课程文件");
-            writeMeta(new File(prepared, "meta.json"), id, data, levelLabel(relative));
+            writeMeta(new File(prepared, "meta.json"), id, data, data.has("hwfeeCourse") ? null : levelLabel(relative));
             new LessonInstaller(root).install(prepared, id);
         } finally {
             deleteTree(prepared);
@@ -260,6 +281,18 @@ public class LessonStore {
                 ? "lesson-" + UUID.randomUUID() : safe;
     }
 
+    private static String importId(String relative, JSONObject data) throws IOException {
+        JSONObject course = data.optJSONObject("hwfeeCourse");
+        if (course != null && course.optInt("schema") == 2) {
+            String id = course.optString("id", "");
+            if (!id.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,179}") || !id.equals(data.optString("id"))) {
+                throw new IOException("课程 ID 无效");
+            }
+            return id;
+        }
+        return sanitize(relative.replace('/', '-'));
+    }
+
     // -------------------------------------------------------------- metadata
 
     /** Library entry: whatever cherina-pod's index page expects, nothing more. */
@@ -267,6 +300,13 @@ public class LessonStore {
         JSONObject meta = new JSONObject();
         meta.put("id", id);
         meta.put("dir", "/lessons/" + id);
+        JSONObject course = data == null ? null : data.optJSONObject("hwfeeCourse");
+        if (course != null && course.optInt("schema") == 2) {
+            JSONArray aliases = new JSONArray();
+            // Only the two earlier variants of this episode can be superseded.
+            aliases.put("cet4-" + id); aliases.put("cet6-" + id);
+            meta.put("legacyIds", aliases);
+        }
         String title = data == null ? id : data.optString("title", id);
         meta.put("title", levelSuffix == null ? title : title + " · " + levelSuffix);
         meta.put("podcast", data == null ? "" : data.optString("podcast", ""));

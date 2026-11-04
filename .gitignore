@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+dist/
+.tmp/
+listening/archive/
+listening/cherina-pod/dist/
 
 # Android build output and generated Capacitor files
 android/.gradle/
@@ -24,6 +28,11 @@ android/*.keystore
 Thumbs.db
 .idea/
 *.iml
+
+# Local reference APK and scratch files
+/base.apk
+/.dsh-paste/
+/nul
 
 # Dashboard editor runtime files (the design folder itself is committed)
 designs/*/.artifact-server.json

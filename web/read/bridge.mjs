@@ -8,8 +8,12 @@ import { sourcePlan, crossLearningArticleId, associationWords, matchedTodayWords
 
 const CACHE_PREFIX = 'hwfee:article:';
 const LAST_STATE_KEY = 'hwfee:reader:last-successful';
+const STATE_SCOPE_KEY = 'hwfee:reader:session-scope';
 const CACHE_MAX_AGE_DAYS = 60;
 const CALL_TIMEOUT_MS = 45000;
+let coverBackfill = null;
+let stateRequest = null;
+let sessionScope = null;
 
 // Both tabs are iframes on the app origin. An iframe receives its own injected Capacitor, but
 // calls made through it never resolve; the top window owns the working bridge.
@@ -92,12 +96,22 @@ function freshDate(date) {
   return age >= 0 && age <= CACHE_MAX_AGE_DAYS;
 }
 
+function httpsUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function validArticle(article, date = article?.date) {
   return Boolean(article && typeof article === 'object'
     && article.date === date && freshDate(date)
     && typeof article.title === 'string' && typeof article.subtitle === 'string'
     && Array.isArray(article.paragraphs) && article.paragraphs.length > 0
-    && article.paragraphs.every((paragraph) => typeof paragraph === 'string' && paragraph.trim()));
+    && article.paragraphs.every((paragraph) => typeof paragraph === 'string' && paragraph.trim())
+    && (article.cover === undefined || httpsUrl(article.cover)));
 }
 
 function validState(state) {
@@ -128,8 +142,15 @@ function writeCache(article) {
   } catch {}
 }
 
+function sameSession() {
+  if (!sessionScope) return true;
+  try { return localStorage.getItem(STATE_SCOPE_KEY) === sessionScope; }
+  catch { return false; }
+}
+
 function readLastState() {
   try {
+    if (!sameSession()) return null;
     const parsed = JSON.parse(localStorage.getItem(LAST_STATE_KEY) || 'null');
     return validState(parsed) ? parsed : null;
   } catch {
@@ -138,7 +159,17 @@ function readLastState() {
 }
 
 function writeLastState(state) {
-  try { localStorage.setItem(LAST_STATE_KEY, JSON.stringify(state)); } catch {}
+  try {
+    localStorage.setItem(LAST_STATE_KEY, JSON.stringify(state));
+    if (sessionScope) localStorage.setItem(STATE_SCOPE_KEY, sessionScope);
+  } catch {}
+}
+
+/** Render the last saved day immediately while today's study records synchronize. */
+export function cachedState() {
+  const state = readLastState();
+  if (!state) return null;
+  return { ...state, article: readCache(state.today.date) || state.article };
 }
 
 /** Keeps the local archive bounded: articles older than this are dropped. */
@@ -193,6 +224,9 @@ async function fetchArticle(api, today) {
     paragraphs,
   };
 
+  const cover = data.thumbnail_urls?.[0];
+  if (httpsUrl(cover)) article.cover = cover;
+
   if (matched) {
     const pairing = associationWords(matched.association_learning_sentences);
     const hits = matchedTodayWords(today.words, matched.matched_vocab_ids);
@@ -212,16 +246,37 @@ function shapeToday(today) {
 }
 
 export async function hasSession() {
-  const api = plugin();
-  if (!api) return false;
-  try {
-    return Boolean((await withTimeout(api.hasCookie(), '读取登录态'))?.has);
-  } catch {
-    return false;
+  // A missing bridge or a timeout is not "no session" — retry until the plugin
+  // answers; only a real has:false means not connected.
+  for (let attempt = 0; ; attempt++) {
+    const api = plugin();
+    if (api) {
+      try {
+        const session = await withTimeout(api.hasCookie(), '读取登录态');
+        sessionScope = typeof session?.sessionScope === 'string' ? session.sessionScope : null;
+        return Boolean(session?.has);
+      } catch (error) {
+        if (attempt >= 4) throw error;
+      }
+    } else if (attempt >= 40) {
+      throw new Error('bridge 不可用，请重试');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
 }
 
-export async function loadState({ force = false } = {}) {
+export function loadState({ force = false } = {}) {
+  if (stateRequest) {
+    if (!force || stateRequest.force) return stateRequest.promise;
+    return stateRequest.promise.catch(() => null).then(() => loadState({ force: true }));
+  }
+  const request = { force, promise: null };
+  request.promise = fetchState({ force }).finally(() => { if (stateRequest === request) stateRequest = null; });
+  stateRequest = request;
+  return request.promise;
+}
+
+async function fetchState({ force }) {
   const api = plugin();
   if (!api) throw new Error('bridge 不可用，请在 app 里打开');
   const clientApi = client();
@@ -232,7 +287,8 @@ export async function loadState({ force = false } = {}) {
       throw new Error('今日学习数据格式无效');
     }
 
-    let article = force ? null : readCache(shaped.date);
+    const sameAccount = sameSession();
+    let article = force || !sameAccount ? null : readCache(shaped.date);
     if (!article) article = await fetchArticle(clientApi, today);
     if (!validArticle(article, shaped.date)) throw new Error('文章缓存格式无效');
 
@@ -242,12 +298,16 @@ export async function loadState({ force = false } = {}) {
     return { ...state, offline: false };
   } catch (error) {
     const cached = readLastState();
-    if (error?.code === 'NETWORK_ERROR' && cached) return { ...cached, offline: true };
+    if (error?.code === 'NETWORK_ERROR' && cached) return { ...cached, offline: true, offlineReason: error.message };
     throw error;
   }
 }
 
-/** Cached articles, newest first — used by the history view. */
+function countWords(paragraphs) {
+  return paragraphs.join(' ').match(/[A-Za-z]+(?:[-’'][A-Za-z]+)*/g)?.length || 0;
+}
+
+/** Cached articles, newest first — the 近几篇 list. */
 export function cachedArticles() {
   const out = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -255,8 +315,65 @@ export function cachedArticles() {
     if (!key || !key.startsWith(CACHE_PREFIX)) continue;
     try {
       const article = JSON.parse(localStorage.getItem(key));
-      if (validArticle(article)) out.push({ date: article.date, title: article.title });
+      if (validArticle(article)) {
+        out.push({
+          date: article.date,
+          title: article.title,
+          words: countWords(article.paragraphs),
+          paragraphs: article.paragraphs.length,
+          cover: article.cover,
+        });
+      }
     } catch {}
   }
   return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+/** One validated cached article, for opening an old read. */
+export function cachedArticle(date) {
+  return readCache(date);
+}
+
+/** Older cached articles predate cover metadata. Repair the visible archive without replacing text. */
+export function backfillArticleCovers() {
+  if (!coverBackfill) {
+    coverBackfill = repairArticleCovers().finally(() => { coverBackfill = null; });
+  }
+  return coverBackfill;
+}
+
+async function repairArticleCovers() {
+  if (!plugin()) return 0;
+  const api = client();
+  let updated = 0;
+  for (const { date } of cachedArticles().slice(0, 10)) {
+    const article = readCache(date);
+    if (!article || article.cover) continue;
+    let id;
+    try {
+      const source = new URL(article.source);
+      if (source.origin !== 'https://web.shanbay.com') continue;
+      id = /^\/reading\/web-news\/articles\/([\w-]+)\/?$/.exec(source.pathname)?.[1];
+    } catch { continue; }
+    if (!id) continue;
+
+    try {
+      const data = await api.request(`/news/articles/${id}?source=1`);
+      const cover = data.thumbnail_urls?.[0];
+      if (!httpsUrl(cover)) continue;
+      // A refresh or cache clear may have changed this entry while the request was pending.
+      const current = readCache(date);
+      if (!current || current.source !== article.source || current.cover) continue;
+      localStorage.setItem(cacheKey(date), JSON.stringify({ ...current, cover }));
+      const last = readLastState();
+      if (last?.article.date === date && last.article.source === current.source && !last.article.cover) {
+        writeLastState({ ...last, article: { ...last.article, cover } });
+      }
+      updated++;
+    } catch (error) {
+      // Covers are optional; leave the article readable and retry on a later refresh.
+      if (['NETWORK_ERROR', 'UNAUTHORIZED'].includes(error?.code)) break;
+    }
+  }
+  return updated;
 }

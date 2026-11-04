@@ -19,8 +19,36 @@ import java.io.File;
 /** Import / list / remove lessons. Import runs off the main thread: a full library zip is 300 MB. */
 @CapacitorPlugin(name = "Lessons", requestCodes = {LessonsPlugin.RC_ZIP})
 public class LessonsPlugin extends Plugin {
+    private static final java.util.concurrent.ExecutorService FILES = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     static final int RC_ZIP = 7801;
+    private HandoutPdfExporter pdfExporter;
+
+    @PluginMethod
+    public void saveHandoutPdf(PluginCall call) {
+        String html = call.getString("html", "");
+        String baseUrl = call.getString("baseUrl", "");
+        Uri url = Uri.parse(baseUrl);
+        if (html.isEmpty() || html.length() > 4 * 1024 * 1024
+                || !LessonWebViewClient.isAppOrigin(url) || url.getPath() == null
+                || !url.getPath().startsWith("/lessons/") || !url.getPath().endsWith("/handout.html")) {
+            call.reject("讲义内容无效");
+            return;
+        }
+        String title = call.getString("title", "精听讲义").replaceAll("[\\\\/:*?\"<>|]", "-");
+        getActivity().runOnUiThread(() -> {
+            if (pdfExporter != null) { call.reject("请先完成当前 PDF 的保存"); return; }
+            pdfExporter = new HandoutPdfExporter(getActivity(), getBridge(), () -> pdfExporter = null);
+            pdfExporter.open(html, baseUrl, title, call);
+        });
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (pdfExporter != null) getActivity().runOnUiThread(() -> {
+            if (pdfExporter != null) pdfExporter.close();
+        });
+    }
 
     @PluginMethod
     public void importZip(PluginCall call) {
@@ -77,7 +105,7 @@ public class LessonsPlugin extends Plugin {
     }
 
     private void runImport(PluginCall call, Uri uri) {
-        getBridge().execute(() -> {
+        FILES.execute(() -> {
             try {
                 LessonStore.Report report = LessonStore.get(getContext()).importZip(uri, getContext());
                 JSArray imported = new JSArray();
@@ -97,17 +125,25 @@ public class LessonsPlugin extends Plugin {
     /** Library payload as JSON text, which keeps the web side free of bridge-shaped objects. */
     @PluginMethod
     public void list(PluginCall call) {
-        JSObject out = new JSObject();
-        out.put("data", LessonStore.get(getContext()).libraryData().toString());
-        call.resolve(out);
+        FILES.execute(() -> {
+            try {
+                JSObject out = new JSObject();
+                out.put("data", LessonStore.get(getContext()).libraryData().toString());
+                call.resolve(out);
+            } catch (Exception error) { call.reject("读取课程失败，请重试"); }
+        });
     }
 
     @PluginMethod
     public void remove(PluginCall call) {
         String id = call.getString("id");
-        boolean ok = LessonStore.get(getContext()).remove(id);
-        JSObject out = new JSObject();
-        out.put("removed", ok);
-        call.resolve(out);
+        FILES.execute(() -> {
+            try {
+                boolean ok = LessonStore.get(getContext()).remove(id);
+                JSObject out = new JSObject();
+                out.put("removed", ok);
+                call.resolve(out);
+            } catch (Exception error) { call.reject("移除课程失败，请重试"); }
+        });
     }
 }

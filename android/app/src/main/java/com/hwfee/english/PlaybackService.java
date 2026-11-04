@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -16,12 +17,15 @@ import android.os.Looper;
 import android.os.Build;
 import android.os.SystemClock;
 import android.os.PowerManager;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Keeps lesson audio alive with the screen off, and puts it on the lock screen.
  *
- * The sound itself belongs to the WebView player; this service holds the process in the foreground
- * and owns the MediaSession. Transport controls come back to the player through AudioBridge.
+ * NativeAudioEngine owns imported audio. This service owns its foreground lifetime and MediaSession;
+ * the WebView receives progress and controls the lesson stages. AudioBridge supports legacy pages.
  */
 public class PlaybackService extends Service {
 
@@ -31,6 +35,7 @@ public class PlaybackService extends Service {
     public static final String ACTION_PAUSE = "com.hwfee.english.action.PAUSE";
     public static final String ACTION_STOP = "com.hwfee.english.action.STOP";
     public static final String ACTION_SLEEP = "com.hwfee.english.action.SLEEP";
+    public static final String ACTION_NATIVE_PLAY = "com.hwfee.english.action.NATIVE_PLAY";
 
     private static final String CHANNEL = "playback";
     private static final int NOTIFICATION_ID = 4211;
@@ -51,17 +56,34 @@ public class PlaybackService extends Service {
     private long duration;
     private String title = "";
     private String artist = "";
+    private String lesson = "";
+    private String artworkSource = "";
+    private Bitmap artwork;
+    private float rate = 1f;
+    private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
+    private Future<?> artworkTask;
+    private boolean destroyed;
+    private NativeAudioEngine nativeEngine;
+    private long lastNativeUpdate;
+    private java.util.List<Object> metadataIdentity;
+    private java.util.List<Object> notificationIdentity;
+    private Notification cachedNotification;
 
     @Override
     public void onCreate() {
         super.onCreate();
         handler = new Handler(Looper.getMainLooper());
+        nativeEngine = NativeAudioEngine.get(this);
+        nativeEngine.serviceListener = this::onNativeState;
         session = new MediaSession(this, "HwFeeEnglish");
         session.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { AudioBridge.evalPlay(); }
-            @Override public void onPause() { AudioBridge.evalPause(); }
-            @Override public void onStop() { active = false; AudioBridge.evalPause(); stopSelf(); }
-            @Override public void onSeekTo(long pos) { AudioBridge.evalSeekTo(pos / 1000.0); }
+            @Override public void onPlay() { playAudio(); }
+            @Override public void onPause() { pauseAudio(); }
+            @Override public void onStop() { active = false; pauseAudio(); stopSelf(); }
+            @Override public void onSeekTo(long pos) {
+                if (nativeEngine.hasSource()) nativeEngine.seek(pos / 1000.0);
+                else AudioBridge.evalSeekTo(pos / 1000.0);
+            }
         });
         session.setActive(true);
 
@@ -76,7 +98,17 @@ public class PlaybackService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
-        if (ACTION_START.equals(action) || ACTION_STATE.equals(action)) {
+        if (ACTION_NATIVE_PLAY.equals(action)) {
+            active = true;
+            applyNativeState(nativeEngine.snapshot());
+            startForeground(NOTIFICATION_ID, buildNotification());
+            com.getcapacitor.JSObject range = null;
+            if (intent.hasExtra("start") && intent.hasExtra("end")) range = new com.getcapacitor.JSObject()
+                    .put("start", intent.getDoubleExtra("start", 0)).put("end", intent.getDoubleExtra("end", 0))
+                    .put("loop", intent.getBooleanExtra("loop", false));
+            long transport = intent.hasExtra("transport") ? intent.getLongExtra("transport", 0) : nativeEngine.reserveTransport();
+            nativeEngine.playRequest(transport, intent.getStringExtra("sourceId"), range);
+        } else if (ACTION_START.equals(action) || ACTION_STATE.equals(action)) {
             if (ACTION_STATE.equals(action) && !active && !intent.getBooleanExtra("playing", false)) {
                 stopSelf();
                 return START_NOT_STICKY;
@@ -91,16 +123,26 @@ public class PlaybackService extends Service {
                 if (nextTitle != null && !nextTitle.isEmpty()) title = nextTitle;
                 String nextArtist = intent.getStringExtra("artist");
                 if (nextArtist != null) artist = nextArtist;
+                String nextLesson = intent.getStringExtra("lesson");
+                if (nextLesson != null && !nextLesson.equals(lesson)) {
+                    lesson = nextLesson;
+                    duration = Math.max(0, reported);
+                    position = intent.getLongExtra("position", 0);
+                }
+                rate = intent.getFloatExtra("rate", rate);
+                if (Float.isNaN(rate) || Float.isInfinite(rate) || rate <= 0) rate = 1f;
+                String nextArtwork = intent.getStringExtra("artwork");
+                if (nextArtwork != null) updateArtwork(nextArtwork);
             }
             pushSessionState();
             startForeground(NOTIFICATION_ID, buildNotification());
         } else if (ACTION_PLAY.equals(action)) {
-            AudioBridge.evalToggle();
+            if (nativeEngine.hasSource()) playAudio(); else AudioBridge.evalToggle();
         } else if (ACTION_PAUSE.equals(action)) {
-            AudioBridge.evalPause();
+            pauseAudio();
         } else if (ACTION_STOP.equals(action)) {
             active = false;
-            AudioBridge.evalPause();
+            pauseAudio();
             stopSelf();
             return START_NOT_STICKY;
         } else if (ACTION_SLEEP.equals(action)) {
@@ -127,7 +169,7 @@ public class PlaybackService extends Service {
         // so screen-off/deep sleep cannot delay the pause; the timeout also bounds this lock.
         sleepWakeLock.acquire(seconds * 1000L + 5000);
         sleepTask = () -> {
-            AudioBridge.evalPause();
+            pauseAudio();
             clearSleep();
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             manager.notify(NOTIFICATION_ID, buildNotification());
@@ -143,14 +185,56 @@ public class PlaybackService extends Service {
         sleepWakeLock = null;
     }
 
+    private void playAudio() {
+        if (nativeEngine.hasSource()) nativeEngine.play(); else AudioBridge.evalPlay();
+    }
+
+    private void pauseAudio() {
+        if (nativeEngine.hasSource()) nativeEngine.pause(); else AudioBridge.evalPause();
+    }
+
+    private void applyNativeState(com.getcapacitor.JSObject state) {
+        playing = state.optBoolean("playing", false);
+        position = Math.round(state.optDouble("position", 0) * 1000);
+        duration = Math.round(state.optDouble("duration", 0) * 1000);
+        title = state.optString("title", "精听"); artist = state.optString("artist", "");
+        lesson = state.optString("lesson", ""); rate = (float) state.optDouble("rate", 1);
+        updateArtwork(state.optString("artwork", ""));
+    }
+
+    private void onNativeState(com.getcapacitor.JSObject state) {
+        if (!active || destroyed) return;
+        boolean changed = playing != state.optBoolean("playing", false)
+                || !lesson.equals(state.optString("lesson", ""))
+                || rate != (float) state.optDouble("rate", 1)
+                || !state.optString("event", "").isEmpty();
+        applyNativeState(state);
+        long now = SystemClock.elapsedRealtime();
+        if (!changed && now - lastNativeUpdate < 900) return;
+        lastNativeUpdate = now;
+        pushSessionState();
+        Notification previous = cachedNotification;
+        Notification next = buildNotification();
+        if (next != previous) getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, next);
+    }
+
     private void pushSessionState() {
         if (session == null) return;
-        MediaMetadata metadata = new MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title.isEmpty() ? "精听" : title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, duration)
-                .build();
-        session.setMetadata(metadata);
+        java.util.List<Object> identity = java.util.Arrays.asList(title, artist, duration, lesson, artwork);
+        if (!identity.equals(metadataIdentity)) {
+            MediaMetadata.Builder metadata = new MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title.isEmpty() ? "精听" : title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                    .putLong(MediaMetadata.METADATA_KEY_DURATION, duration)
+                    .putString(MediaMetadata.METADATA_KEY_MEDIA_ID, lesson);
+            if (artwork != null) {
+                metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+                        .putBitmap(MediaMetadata.METADATA_KEY_ART, artwork)
+                        .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artwork);
+            }
+            session.setMetadata(metadata.build());
+            metadataIdentity = identity;
+        }
         session.setPlaybackState(new PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY
                         | PlaybackState.ACTION_PAUSE
@@ -158,11 +242,18 @@ public class PlaybackService extends Service {
                         | PlaybackState.ACTION_SEEK_TO
                         | PlaybackState.ACTION_STOP)
                 .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                        position, playing ? 1f : 0f)
+                        position, playing ? rate : 0f)
                 .build());
     }
 
     private Notification buildNotification() {
+        String timer = null;
+        if (sleepTask != null) {
+            long minutesLeft = Math.max(0, (sleepEndsAt - SystemClock.elapsedRealtime()) / 60_000L);
+            timer = minutesLeft < 1 ? "睡眠定时 · 不到 1 分钟" : "睡眠定时 · 还有 " + minutesLeft + " 分钟";
+        }
+        java.util.List<Object> identity = java.util.Arrays.asList(playing, title, artist, artwork, timer);
+        if (identity.equals(notificationIdentity) && cachedNotification != null) return cachedNotification;
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
         builder.setSmallIcon(android.R.drawable.ic_media_play)
@@ -175,23 +266,22 @@ public class PlaybackService extends Service {
                         .setMediaSession(session.getSessionToken())
                         .setShowActionsInCompactView(0, 1));
 
+        if (artwork != null) builder.setLargeIcon(artwork);
         builder.addAction(new Notification.Action.Builder(
-                android.R.drawable.ic_media_previous, "播放/暂停", command(ACTION_PLAY)).build());
+                playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
+                playing ? "暂停" : "播放", command(playing ? ACTION_PAUSE : ACTION_PLAY)).build());
         builder.addAction(new Notification.Action.Builder(
                 android.R.drawable.ic_menu_close_clear_cancel, "停止", command(ACTION_STOP)).build());
 
-        if (sleepTask != null) {
-            long minutesLeft = Math.max(0, (sleepEndsAt - SystemClock.elapsedRealtime()) / 60_000L);
-            builder.setSubText(minutesLeft < 1
-                    ? "睡眠定时 · 不到 1 分钟"
-                    : "睡眠定时 · 还有 " + minutesLeft + " 分钟");
-        }
+        if (timer != null) builder.setSubText(timer);
 
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         builder.setContentIntent(open);
-        return builder.build();
+        notificationIdentity = identity;
+        cachedNotification = builder.build();
+        return cachedNotification;
     }
 
     private PendingIntent command(String action) {
@@ -200,8 +290,32 @@ public class PlaybackService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
+    private void updateArtwork(String source) {
+        if (source.equals(artworkSource)) return;
+        artworkSource = source;
+        artwork = null; // Changing lessons must never keep the previous lesson's cover.
+        if (artworkTask != null) artworkTask.cancel(true);
+        if (source.isEmpty()) return;
+        artworkTask = artworkExecutor.submit(() -> {
+            Bitmap loaded;
+            try { loaded = MediaArtwork.load(getApplicationContext(), source); }
+            catch (Exception ignored) { return; }
+            if (loaded == null || Thread.currentThread().isInterrupted()) return;
+            handler.post(() -> {
+                if (destroyed || !active || !source.equals(artworkSource)) return;
+                artwork = loaded;
+                pushSessionState();
+                getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification());
+            });
+        });
+    }
+
     @Override
     public void onDestroy() {
+        destroyed = true;
+        if (nativeEngine != null) nativeEngine.serviceListener = null;
+        if (artworkTask != null) artworkTask.cancel(true);
+        artworkExecutor.shutdownNow();
         active = false;
         clearSleep();
         stopForeground(true);

@@ -1,6 +1,9 @@
 package com.hwfee.english;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -11,6 +14,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.core.view.WindowCompat;
 
@@ -69,8 +73,23 @@ public class LoginActivity extends Activity {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                android.net.Uri url = request.getUrl();
+                return handleNavigation(view, url, request.isForMainFrame());
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                // Android 6 uses this overload instead of WebResourceRequest.
+                return handleNavigation(view, Uri.parse(url), true);
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 captureCookies();
@@ -84,6 +103,61 @@ public class LoginActivity extends Activity {
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(web, true);
         web.loadUrl(LOGIN_URL);
+    }
+
+    static boolean isShanbayNavigation(android.net.Uri url) {
+        String host = url.getHost();
+        if (host == null) return false;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        return "https".equalsIgnoreCase(url.getScheme())
+                && url.getUserInfo() == null && (url.getPort() == -1 || url.getPort() == 443)
+                && (host.equals("shanbay.com") || host.endsWith(".shanbay.com"));
+    }
+
+    static boolean isLoginNavigation(Uri url) {
+        if (isShanbayNavigation(url)) return true;
+        String host = url.getHost();
+        return "https".equalsIgnoreCase(url.getScheme()) && url.getUserInfo() == null
+                && (url.getPort() == -1 || url.getPort() == 443) && host != null
+                && (host.equalsIgnoreCase("open.weixin.qq.com")
+                    || host.equalsIgnoreCase("long.open.weixin.qq.com")
+                    || host.equalsIgnoreCase("mp.weixin.qq.com"));
+    }
+
+    /** Discard intent extras/components; the only external destination is WeChat itself. */
+    static Intent wechatIntent(Uri target, Uri source) {
+        if (source == null || !isLoginNavigation(source)) return null;
+        Uri destination = target;
+        if ("intent".equalsIgnoreCase(target.getScheme())) {
+            try {
+                Intent parsed = Intent.parseUri(target.toString(), Intent.URI_INTENT_SCHEME);
+                if (parsed.getPackage() != null && !"com.tencent.mm".equals(parsed.getPackage())) return null;
+                destination = parsed.getData();
+            } catch (java.net.URISyntaxException error) { return null; }
+        }
+        if (destination == null || !"weixin".equalsIgnoreCase(destination.getScheme())
+                || destination.getHost() == null || destination.getUserInfo() != null) return null;
+        return new Intent(Intent.ACTION_VIEW, destination).addCategory(Intent.CATEGORY_BROWSABLE)
+                .setPackage("com.tencent.mm");
+    }
+
+    private boolean handleNavigation(WebView view, Uri target, boolean mainFrame) {
+        if ("https".equalsIgnoreCase(target.getScheme())) {
+            return mainFrame && !isLoginNavigation(target); // HTTPS CAPTCHA frames remain usable.
+        }
+        Intent intent = wechatIntent(target, view.getUrl() == null ? null : Uri.parse(view.getUrl()));
+        if (intent != null) {
+            try { startActivity(intent); }
+            catch (ActivityNotFoundException | SecurityException error) {
+                Toast.makeText(this, "无法打开微信，请确认已安装微信，或使用其他登录方式", Toast.LENGTH_LONG).show();
+            }
+        }
+        return true;
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (web != null) captureCookies();
     }
 
     /**

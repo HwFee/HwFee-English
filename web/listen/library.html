@@ -31,15 +31,20 @@ h1{font-size:34px;font-weight:700;letter-spacing:-.03em;margin:2px 0 22px}
 .week i{flex:1;height:6px;border-radius:3px;background:var(--line)}
 .week i.on{background:var(--fire)}
 .week i.today{outline:2px solid var(--fire);outline-offset:1px}
-.hero{margin-top:16px;display:flex;align-items:center;gap:18px;background:var(--surface);border-radius:24px;padding:18px;box-shadow:0 0 0 .5px rgba(0,0,0,.04);transition:transform .2s var(--ease)}
+.hero{margin-top:16px;display:flex;flex-direction:column;background:var(--surface);border-radius:24px;padding:16px;box-shadow:0 0 0 .5px rgba(0,0,0,.04);transition:transform .2s var(--ease)}
 .hero:active{transform:scale(.99)}
 .cover{width:84px;height:84px;border-radius:16px;flex:none;background:linear-gradient(135deg,#5AC8FA,#0071E3);display:grid;place-items:center;color:#fff;font-weight:700;font-size:28px;overflow:hidden}
 .cover img{width:100%;height:100%;object-fit:cover}
+.hero .hrow{display:flex;align-items:center;gap:14px}
+.hero .cover{width:104px;height:104px;border-radius:18px}
 .hero .m{flex:1;min-width:0}
-.hero .kk{font-size:12.5px;font-weight:600;color:var(--acc)}
-.hero .tt{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hero .ss{font-size:13.5px;color:var(--ink2);margin-top:2px}
+.hero .tt{font-size:17px;font-weight:700;line-height:1.32;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.hero .ss{font-size:13px;color:var(--ink2);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero .hact{display:flex;align-items:center;gap:12px;margin-top:14px;padding-top:12px;border-top:.5px solid var(--line)}
+.hero .st{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--ink2)}
+.hero .st.is-live{color:var(--acc-ink)}
 .go{width:52px;height:52px;border-radius:50%;background:var(--ink);color:var(--surface);display:grid;place-items:center;flex:none}
+.hero .go{width:48px;height:48px}
 h2{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:34px 0 12px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .card{background:var(--surface);border-radius:20px;padding:14px;box-shadow:0 0 0 .5px rgba(0,0,0,.04);display:flex;flex-direction:column;gap:12px;transition:transform .2s var(--ease)}
@@ -107,12 +112,12 @@ h2{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:34px 0 12px}
 "use strict";
 var D=JSON.parse(document.getElementById("data").textContent),LS=D.lessons;
 var L={zh:{h1:"我的精听",streak:"连续",days:"天",todayMin:"今天",min:"分钟",segs:"累计完成",seg:"段",review:"待复习",item:"句",
-  cont:"继续练习",start:"开始第一课",part:"第 {n} 段",of:"共 {t} 段",lib:"课程库",saved:"收藏的句子",
+  prog:"已练 {d}/{t} 段",next:"接着第 {n} 段",fresh:"从第 {n} 段开始",of:"共 {t} 段",lib:"课程库",saved:"收藏的句子",
   noSaved:"精听或对照时点句子下方的书签，就能收藏到这里",noLessons:"还没有课。运行 python3 scripts/lesson.py “6 Minute English” 生成第一课",
   practice:"精听",handout:"讲义",min2:"分钟",done:"已完成",tap:"点一下看原文",forgot:"忘了",fuzzy:"模糊",good:"记住了",allDone:"今天的复习完成了",
   week:["日","一","二","三","四","五","六"]},
  en:{h1:"Listening",streak:"Streak",days:"days",todayMin:"Today",min:"min",segs:"Parts done",seg:"",review:"To review",item:"",
-  cont:"Continue",start:"Start your first lesson",part:"Part {n}",of:"{t} parts",lib:"Library",saved:"Saved lines",
+  prog:"{d}/{t} parts done",next:"next: part {n}",fresh:"start at part {n}",of:"{t} parts",lib:"Library",saved:"Saved lines",
   noSaved:"Tap the bookmark under a line to save it here",noLessons:"No lessons yet. Run python3 scripts/lesson.py “6 Minute English”",
   practice:"Practice",handout:"Handout",min2:"min",done:"done",tap:"Tap to reveal",forgot:"Forgot",fuzzy:"Hard",good:"Got it",allDone:"All caught up",
   week:["S","M","T","W","T","F","S"]}}[D.ui||"zh"];
@@ -150,8 +155,10 @@ if(pick&&prog(pick).done>=pick.segments)pick=null;
 if(!pick)pick=LS.filter(function(l){return prog(l).done<l.segments;})[0]||LS[0];
 var hero=$("hero");
 if(pick){var p=prog(pick);hero.href=encodeURI(pick.dir)+"/player.html#seg="+p.next;
-  hero.innerHTML=cover(pick)+'<div class="m"><div class="kk">'+(p.touched?L.cont:L.start)+' · '+f(L.part,{n:p.next})+'</div><div class="tt">'+esc(pick.title)+'</div><div class="ss">'+esc(pick.podcast)+' · '+f(L.of,{t:pick.segments})+'</div></div>'+
-  '<span class="go"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.6v12.8a1.2 1.2 0 0 0 1.84 1.02l10.1-6.4a1.2 1.2 0 0 0 0-2.04l-10.1-6.4A1.2 1.2 0 0 0 8.2 5.6z"/></svg></span>';}
+  var st=p.done>0?f(L.prog,{d:p.done,t:pick.segments})+" · "+f(L.next,{n:p.next}):f(L.fresh,{n:p.next});
+  hero.innerHTML='<div class="hrow">'+cover(pick)+'<div class="m"><div class="tt">'+esc(pick.title)+'</div><div class="ss">'+esc(pick.podcast)+'</div><div class="ss">'+f(L.of,{t:pick.segments})+' · '+Math.round(pick.duration/60)+' '+L.min2+'</div></div></div>'+
+  '<div class="hact"><div class="st">'+st+'</div>'+
+  '<span class="go"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.6v12.8a1.2 1.2 0 0 0 1.84 1.02l10.1-6.4a1.2 1.2 0 0 0 0-2.04l-10.1-6.4A1.2 1.2 0 0 0 8.2 5.6z"/></svg></span></div>';}
 else hero.outerHTML='<div class="empty">'+L.noLessons+'</div>';
 
 $("hLib").textContent=L.lib;

@@ -48,11 +48,10 @@ export class Shanbay {
     const id = book.materialbook_id || book.materialbook?.id;
     if (!id || !/^[\w-]+$/.test(String(id))) throw new Error('未找到当前词书 ID');
     const base = `/wordsapp/user_material_books/${id}/learning/`;
-    const status = await this.request(base+'statuses');
-    const sync = await this.request(base+'items/sync');
+    const [status, sync] = await Promise.all([this.request(base+'statuses'), this.request(base+'items/sync')]);
     const unfinished = new Set([...(sync.a_not_finished_items || []),...(sync.c_not_finished_items || [])].map(i=>String(i.item_id)));
-    const words = [];
-    for (const type of ['NEW','REVIEW']) {
+    const groups = await Promise.all(['NEW','REVIEW'].map(async type => {
+      const words = [];
       let loaded = 0;
       for (let page=1; page<=100; page++) {
         const data = unpack(await this.request(base+`words/today_learning_items?type_of=${type}&page=${page}&ipp=50`));
@@ -62,7 +61,9 @@ export class Shanbay {
         if (loaded >= data.total) break;
         if (!data.objects.length || page===100) throw new Error('今日单词未读取完整，请稍后重试');
       }
-    }
+      return words;
+    }));
+    const words = groups.flat();
     return { fetchedAt:new Date().toISOString(), date:status.date || sync.date || null, book:book.materialbook?.name || '当前词书', status, words };
   }
 }

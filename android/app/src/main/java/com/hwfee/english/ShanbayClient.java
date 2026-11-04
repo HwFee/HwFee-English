@@ -151,6 +151,7 @@ final class ShanbayClient {
         if (status == 401) return new ShanbayException("UNAUTHORIZED", "登录已过期，请重新连接扇贝");
         if (status == 403) return new ShanbayException("FORBIDDEN", "请求被拒绝，请在扇贝网页确认登录状态");
         if (status == 412) return new ShanbayException("NOT_READY", "今日学习数据尚未就绪，请先打开官方学习页");
+        if (status == 404) return new ShanbayException("NOT_FOUND", "扇贝没有这条内容");
         if (status == 429) return new ShanbayException("RATE_LIMITED", "请求太频繁，请稍后再试");
         return new ShanbayException("HTTP_ERROR", "扇贝接口暂时不可用，请稍后再试");
     }

@@ -3,9 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="light">
-<meta name="theme-color" content="#fcf8ee">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>HwFee English</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <link rel="stylesheet" href="./shell.css">
 <script type="module" src="./shell.js"></script>
 </head>
@@ -16,81 +18,149 @@
 
     <section class="pane is-active" data-pane="listen">
       <iframe id="listenFrame" class="frame" src="./listen/library.html" title="精听"></iframe>
+      <iframe id="playerFrame" class="frame" title="播放" hidden></iframe>
     </section>
 
     <section class="pane" data-pane="read">
       <iframe id="readFrame" class="frame" src="./read/index.html" title="阅读"></iframe>
     </section>
 
+    <section class="pane pane-settings" data-pane="settings">
+      <div class="set-wrap">
+        <h1>设置</h1>
+
+        <section class="card usage-card">
+          <div class="ua-head">
+            <h2>用量 · 近 30 天</h2>
+            <button class="hint-action" type="button" id="usageRefresh">重新读取</button>
+          </div>
+          <div class="ua-row"><span class="ua-label">扇贝额度</span>
+            <span class="ua-val u-num" id="usageQuotaVal">—</span></div>
+          <div class="ua-meter" role="meter" aria-valuemin="0" aria-valuemax="100"
+               aria-label="扇贝剩余额度"><i id="usageQuotaFill"></i></div>
+          <div class="ua-detail"><p class="ua-sub" id="usageQuotaSub">读取中…</p><time class="ua-time" id="usageQuotaTime" hidden></time></div>
+          <div class="ua-split">
+            <div class="ue-bal u-num"><b id="usageBalanceVal">—</b>
+              <span class="lbl">DeepSeek 余额</span></div>
+            <div class="ua-detail"><p class="ue-comp u-num" id="usageBalanceComp">读取中…</p><time class="ua-time" id="usageBalanceTime" hidden></time></div>
+          </div>
+          <div class="ua-split">
+            <div class="ua-row"><span class="ua-label">个人 API · 30 天</span>
+              <span class="ua-val u-num" id="usageTokensVal">—</span></div>
+            <p class="ue-comp u-num" id="usageTokensComp">读取中…</p>
+          </div>
+          <p class="u-foot"><span id="usageFoot">读取中…</span></p>
+        </section>
+
+        <section class="card account-card">
+          <div class="settings-card-head"><h2>扇贝账号</h2><p class="state" id="shanbayState">检查中…</p></div>
+          <div class="row">
+            <button class="btn is-primary" id="shanbayLogin">网页登录</button>
+            <button class="btn is-danger-soft" id="shanbayClear" disabled>断开连接</button>
+          </div>
+        </section>
+
+        <section class="card ai-card">
+          <div class="settings-card-head"><div class="setting-title"><h2>翻译与分析</h2><button class="info-button" id="routingHelp" type="button" aria-label="翻译与分析使用说明" aria-expanded="false" aria-controls="routingHint"><svg data-icon="info" width="15" height="15"></svg></button></div><p class="state" id="llmState">检查中…</p></div>
+          <div class="settings-help" id="routingHint" role="region" aria-label="翻译与分析使用说明" hidden><strong>优先使用扇贝</strong><p>翻译和长难句分析优先使用扇贝额度；扇贝不可用时使用个人 API，会消耗 Token。没有连接扇贝时，直接使用已配置的个人 API。</p></div>
+          <details class="api-settings" id="apiSettings"><summary><span class="ua-label">个人 API</span><span class="api-current"><span class="v" id="apiModelName">未配置</span><svg class="chev" data-icon="caret-left" width="13" height="13" aria-hidden="true"></svg></span></summary><div class="api-fields">
+          <label class="field">回退 API Key
+            <input id="llmKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
+          </label>
+          <label class="field">接口地址
+            <input id="llmBase" type="url" spellcheck="false" placeholder="https://api.deepseek.com">
+          </label>
+          <div class="field">
+            <div class="model-box">
+              <div class="model-head" id="llmModelHead" role="button" tabindex="0"
+                   aria-expanded="false" aria-controls="llmModelList">
+                <span class="field-label">模型</span>
+                <span class="m-current" id="llmModelCurrent">未选择</span>
+                <svg class="m-chev" data-icon="caret-left" width="14" height="14"></svg>
+              </div>
+              <div class="model-list" id="llmModelList" role="listbox" aria-label="模型" hidden></div>
+            </div>
+          </div>
+          <label class="field" id="llmManualField" hidden>模型 ID
+            <input id="llmModel" type="text" spellcheck="false" placeholder="输入模型 ID">
+          </label>
+          <div class="row">
+            <button class="btn is-primary" id="llmSave">保存</button>
+          </div>
+          <p class="api-actions">
+            <button class="hint-action" type="button" id="llmModelRefresh">重新获取</button>
+            <span class="api-note" id="llmModelsHint" role="status" aria-live="polite"></span>
+            <button class="hint-action is-danger" type="button" id="llmClear" hidden>清除密钥</button>
+          </p>
+          </div></details>
+          <div class="pretranslation-setting">
+            <div class="setting-toggle">
+              <div class="setting-title"><label for="autoTranslate">自动预加载今日文章</label><button class="info-button" id="pretranslationHelp" type="button" aria-label="预加载说明和状态详情" aria-expanded="false" aria-controls="autoTranslateHint"><svg data-icon="info" width="15" height="15"></svg></button></div>
+              <input id="autoTranslate" type="checkbox" role="switch" aria-label="自动预加载今日文章" disabled>
+            </div>
+            <div class="settings-help" id="autoTranslateHint" role="region" aria-label="预加载说明" hidden>
+              <strong>提前准备，阅读时少等待</strong>
+              <p>自动准备今日文章的翻译和长难句分析，结果缓存 30 天。优先使用扇贝额度，不可用时使用个人 API，会消耗 Token。</p>
+              <p>失败后保留已完成的结果，暂停本篇自动重试；可点击“重试”。新文章会自动准备。</p>
+              <p id="pretranslationDetail" hidden></p>
+            </div>
+            <div class="pretranslation-status"><p id="pretranslationState" role="status" aria-live="polite"></p><button class="hint-action" id="pretranslationRetry" type="button" hidden>重试</button></div>
+          </div>
+        </section>
+
+        <section class="card appearance-card" aria-label="外观">
+          <div class="setting-toggle">
+            <div class="appearance-copy">
+              <label for="darkMode">深色模式</label>
+              <p id="appearanceState">跟随系统</p>
+            </div>
+            <input id="darkMode" type="checkbox" role="switch" aria-label="深色模式" disabled>
+          </div>
+          <button class="hint-action" id="appearanceSystem" type="button" hidden>跟随系统</button>
+        </section>
+
+
+      </div>
+    </section>
+
   </main>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab is-active" data-tab="listen" role="tab" aria-selected="true">精听</button>
-    <button class="tab" data-tab="read" role="tab" aria-selected="false">阅读</button>
-    <button class="import" id="importBtn" aria-label="导入课程 zip" title="导入课程 zip">
-      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none"
-           stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 4v11"></path><path d="M7.5 10.5 12 15l4.5-4.5"></path><path d="M5 19h14"></path>
-      </svg>
+  <button class="import" id="importBtn" aria-label="导入课程 zip" title="导入课程 zip">
+    <svg data-icon="download-simple" width="20" height="20"></svg>
+  </button>
+
+  <nav class="tabs" role="tablist" aria-label="主导航">
+    <span class="glider" aria-hidden="true"></span>
+    <button class="tab is-active" data-tab="listen" role="tab" aria-selected="true">
+      <svg data-icon="headphones-fill" data-base="headphones"></svg>
+      <span>精听</span>
     </button>
-    <button class="import" id="settingsBtn" aria-label="设置" title="设置">
-      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none"
-           stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-        <circle cx="12" cy="12" r="3.1"></circle>
-        <path d="M12 3v2.2M12 18.8V21M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M3 12h2.2M18.8 12H21M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"></path>
-      </svg>
+    <button class="tab" data-tab="read" role="tab" aria-selected="false">
+      <svg data-icon="book-open-text" data-base="book-open-text"></svg>
+      <span>阅读</span>
+    </button>
+    <button class="tab" data-tab="settings" role="tab" aria-selected="false">
+      <svg data-icon="gear-six" data-base="gear-six"></svg>
+      <span>设置</span>
     </button>
   </nav>
 
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <div class="settings" id="settings" hidden>
-    <header class="settings-bar">
-      <span class="settings-title">设置</span>
-      <button class="settings-done" id="settingsClose">完成</button>
-    </header>
-
-    <div class="settings-body">
-      <section class="card">
-        <h2>扇贝</h2>
-        <p class="state" id="shanbayState">检查中…</p>
-        <div class="row">
-          <button class="btn is-primary" id="shanbayLogin">网页登录</button>
-          <button class="btn" id="shanbayPaste">粘贴 Cookie</button>
-        </div>
-        <div class="paste" id="pasteBox" hidden>
-          <textarea id="cookieInput" rows="4" spellcheck="false"
-                    placeholder="粘贴 cURL，或直接粘贴 Cookie：auth_token=…; csrftoken=…"></textarea>
-          <button class="btn is-primary is-wide" id="cookieSave">保存登录态</button>
-        </div>
-        <button class="btn is-quiet" id="shanbayClear">断开扇贝</button>
-      </section>
-
-      <section class="card">
-        <h2>翻译</h2>
-        <p class="state" id="llmState">检查中…</p>
-        <label class="field">API Key
-          <input id="llmKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
-        </label>
-        <label class="field">接口地址
-          <input id="llmBase" type="url" spellcheck="false" placeholder="https://api.deepseek.com/v1">
-        </label>
-        <label class="field">模型
-          <input id="llmModel" type="text" spellcheck="false" placeholder="deepseek-chat">
-        </label>
-        <div class="row">
-          <button class="btn is-primary" id="llmSave">保存</button>
-          <button class="btn is-quiet" id="llmClear">清除密钥</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>课程库</h2>
-        <p class="state" id="lessonState">—</p>
-      </section>
-    </div>
-  </div>
-
 </div>
+<!-- Liquid glass refraction map, baked by tools/gen-glass-map.py (352x58, radius 29,
+     band 14, displacement 10). Regenerate with:
+     python tools/gen-glass-map.py 352 58 29 14 10 .tmp/island-map.b64 && node tools/inject-glass-filter.mjs
+     Keep this <svg> in the DOM: a filter reference that resolves to nothing silently
+     drops the whole backdrop-filter, blur included. -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <filter id="lg-refract" x="0" y="0" width="100%" height="100%"
+          primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+    <feImage href="data:image/png;base64,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"
+             x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="map"/>
+    <feDisplacementMap in="SourceGraphic" in2="map" scale="20"
+                       xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
 </body>
 </html>

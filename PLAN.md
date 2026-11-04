@@ -1,6 +1,6 @@
 # HwFee English — Android app plan
 
-Two repos, one app. `English-listening/cherina-pod` becomes the **Listen** tab; `扇贝阅读助手` becomes the **Read** tab.
+One app with a local course generator. `listening/cherina-pod` supplies the **Listen** tab; `扇贝阅读助手` supplies the **Read** tab. The course generator and all earlier material migrated here on 2026-11-04; see `docs/LISTENING.md`.
 
 Start at M0 — scaffold plus one APK installed on the phone. Nothing else is real until that runs.
 
@@ -10,8 +10,8 @@ Start at M0 — scaffold plus one APK installed on the phone. Nothing else is re
 |---|---|
 | Scope | One app, two tabs. Shanbay data refreshes on the phone; lessons arrive by zip import. |
 | Stack | Capacitor shell + native Kotlin plugin layer. Both web UIs survive nearly verbatim. |
-| Translation | Your own LLM key (DeepSeek / OpenAI-compatible) only. Shanbay's metered SSE translate is not used. |
-| Build | Android SDK installed on this machine; I build and install the APK. |
+| Translation and analysis | Shanbay SSE first, personal DeepSeek / OpenAI-compatible API fallback. One opt-in preparation switch warms translations and 10–120-word analyses; manual work shares their 30-day caches. |
+| Build | User authorized 1.0.9 packaging (versionCode 10), including the revised unified 39-lesson ZIP, on 2026-11-04 after the UI rollback and listening fixes. No phone installation or remote push is authorized by packaging alone. |
 | Playback | Background audio, lock-screen controls, sleep timer. |
 | Session | In-app Shanbay login WebView, cookie captured from `CookieManager`, paste-a-cURL as fallback. |
 
@@ -49,7 +49,7 @@ Daily refresh on open: today's words (`today_learning_items`, paged 50 at a time
 
 Three gestures, all reusing what the Zen extension already proved:
 
-1. **Long-press a sentence → translate.** Sends the sentence to your LLM key, streams the answer into a bottom card. Shows a spinner state and a retry on failure; no metered Shanbay call.
+1. **Long-press a sentence → sentence tools.** Shanbay analysis/translation is primary; the personal LLM API is fallback. The anchored card renders completed, validated results with loading/error/retry feedback. Analysis returns exact-text schema 2 components. Optional article preparation runs on app open/resume, shares manual-request work and retains completed answers for 30 days. Usage-display backend is ready; the other model owns its Settings frontend. See `docs/llm-api.md` and `docs/usage-api.md`.
 2. **Tap a word → popup with meaning + add to wordbook.** Meaning from the local vocab index (built from `user_vocabs` at sync). Add/remove hits `/wordscollection/words` — the same endpoint the extension calls — and the popup reflects real membership via `words_check` rather than assuming.
 3. **Highlight words in the text.** Built from `user_vocabs?categories=today,wordbook,learned,unlearned`, defaulting to `today` + `wordbook`, with per-category toggles in settings. Rendered by our own DOM pass over the paragraphs, so it does not depend on the extension's marking code.
 

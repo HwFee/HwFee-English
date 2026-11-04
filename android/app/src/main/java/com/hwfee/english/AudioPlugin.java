@@ -18,10 +18,71 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 /** Control surface for playback that has to survive the screen turning off. */
 @CapacitorPlugin(name = "Audio")
 public class AudioPlugin extends Plugin {
+    private NativeAudioEngine nativeEngine;
+    private NativeAudioEngine.Listener nativeListener;
 
     @Override
     public void load() {
         AudioBridge.attach(getBridge().getWebView());
+        nativeEngine = NativeAudioEngine.get(getContext());
+        nativeListener = state -> notifyListeners("nativeAudioState", state);
+        getActivity().runOnUiThread(() -> nativeEngine.pageListener = nativeListener);
+    }
+
+    @PluginMethod
+    public void nativePrepare(PluginCall call) {
+        nativeEngine.prepare(call.getData(), call);
+    }
+
+    @PluginMethod
+    public void nativeControl(PluginCall call) {
+        String action = call.getString("action", "state");
+        if (!nativeEngine.accepts(call.getString("sourceId"))) { call.reject("课程已切换"); return; }
+        if ("play".equals(action)) {
+            long request = nativeEngine.reserveTransport();
+            getActivity().runOnUiThread(() -> {
+                if (!nativeEngine.accepts(call.getString("sourceId"))) { call.reject("课程已切换"); return; }
+                try {
+                    maybeAskForNotifications();
+                    Intent intent = new Intent(getContext(), PlaybackService.class).setAction(PlaybackService.ACTION_NATIVE_PLAY)
+                            .putExtra("transport", request).putExtra("sourceId", call.getString("sourceId"));
+                    if (call.getData().has("start") && call.getData().has("end")) intent
+                            .putExtra("start", call.getData().optDouble("start", 0)).putExtra("end", call.getData().optDouble("end", 0))
+                            .putExtra("loop", call.getData().optBoolean("loop", false));
+                    ContextCompat.startForegroundService(getContext(), intent);
+                    call.resolve(nativeEngine.snapshot());
+                } catch (Exception error) { call.reject("无法恢复后台播放，请重试"); }
+            });
+            return;
+        }
+        // Reserve pause immediately, before a delayed service-start callback can resume playback.
+        long pauseRequest = "pause".equals(action) ? nativeEngine.reserveTransport() : 0;
+        nativeEngine.execute(() -> {
+            if (!nativeEngine.accepts(call.getString("sourceId"))) { call.reject("课程已切换"); return; }
+            try {
+                switch (action) {
+                    case "pause": nativeEngine.pauseRequest(pauseRequest); break;
+                    case "seek": nativeEngine.seek(call.getData().optDouble("position", 0)); break;
+                    case "rate": nativeEngine.rate(call.getData().optDouble("rate", 1)); break;
+                    case "range": nativeEngine.range(call.getData().optDouble("start", 0),
+                            call.getData().optDouble("end", 0), call.getData().optBoolean("loop", false)); break;
+                    default: break;
+                }
+                call.resolve(nativeEngine.snapshot());
+            } catch (Exception error) { call.reject("原生播放操作失败：" + error.getMessage()); }
+        });
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        getActivity().runOnUiThread(() -> {
+            if (nativeEngine.pageListener == nativeListener) nativeEngine.pageListener = null;
+        });
+    }
+
+    @Override
+    protected void handleOnResume() {
+        AudioBridge.evalForeground();
     }
 
     @PluginMethod
@@ -33,6 +94,8 @@ public class AudioPlugin extends Plugin {
                 .putExtra("playing", true)
                 .putExtra("title", data.optString("title", "精听"))
                 .putExtra("artist", data.optString("artist", ""))
+                .putExtra("artwork", data.optString("artwork", ""))
+                .putExtra("lesson", data.optString("lesson", ""))
                 .putExtra("duration", secondsToMillis(data.optDouble("duration", 0)));
         try {
             ContextCompat.startForegroundService(getContext(), intent);
@@ -57,6 +120,9 @@ public class AudioPlugin extends Plugin {
                 .putExtra("duration", secondsToMillis(data.optDouble("duration", 0)))
                 .putExtra("title", data.optString("title", ""))
                 .putExtra("artist", data.optString("artist", ""));
+        intent.putExtra("artwork", data.optString("artwork", ""))
+                .putExtra("lesson", data.optString("lesson", ""))
+                .putExtra("rate", (float) data.optDouble("rate", 1));
         try {
             if (playing && !PlaybackService.hasSession()) {
                 ContextCompat.startForegroundService(getContext(), intent);
@@ -71,6 +137,7 @@ public class AudioPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        if (nativeEngine.hasSource()) nativeEngine.pause();
         AudioBridge.evalPause();
         getContext().stopService(new Intent(getContext(), PlaybackService.class));
         call.resolve();

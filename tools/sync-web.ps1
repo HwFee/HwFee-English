@@ -1,7 +1,7 @@
 # Copies the two source projects' web UI into web/, so the APK is self-contained.
 # Run after either source project changes:  pwsh -File tools\sync-web.ps1
 param(
-  [string]$ListenRepo = 'C:\Users\HwFee\Desktop\English-listening\cherina-pod',
+  [string]$ListenRepo = (Join-Path $PSScriptRoot '..\listening\cherina-pod'),
   [string]$ReadRepo   = 'C:\Users\HwFee\Desktop\扇贝阅读助手'
 )
 
@@ -18,6 +18,7 @@ function Copy-One([string]$from, [string]$to) {
 
 Write-Host 'listen (cherina-pod templates)'
 Copy-One "$ListenRepo\scripts\templates\player.html" "$root\web\listen\player.template.html"
+Copy-One "$ListenRepo\scripts\templates\player-layout.js" "$root\web\listen\player-layout.js"
 Copy-One "$ListenRepo\scripts\templates\index.html"  "$root\web\listen\library.html"
 
 Write-Host 'read (扇贝阅读助手)'

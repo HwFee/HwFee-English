@@ -2,6 +2,7 @@ package com.hwfee.english;
 
 import android.content.Context;
 import android.net.Uri;
+import android.webkit.WebResourceResponse;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -15,6 +16,7 @@ import org.robolectric.annotation.Config;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.zip.ZipEntry;
@@ -109,5 +111,58 @@ public class LessonStoreTest {
         LessonStore.Report replaced = importFiles("cet4/kept/player.html", player("Replacement"));
         assertEquals(1, replaced.imported.size());
         assertEquals("Replacement · 四级", store.libraryData().getJSONArray("lessons").getJSONObject(0).getString("title"));
+    }
+
+    @Test public void serveLibraryInjectsFixesOnceAndLeavesAssetUntouched() throws Exception {
+        String template = "<html><head><title>x</title></head><body>__DATA__</body></html>";
+        String html = LessonServer.injectLibraryFixes(template);
+        assertEquals(1, html.split("hwfee-library-fixes", -1).length - 1);
+        assertTrue(html.contains(".cover>*{grid-area:1/1}"));
+        assertTrue(html.contains("font-size:0!important"));
+        assertEquals("<html><head><title>x</title></head><body>__DATA__</body></html>", template);
+        File asset = new File("src/main/assets/public/listen/library.html");
+        assertTrue(asset.isFile());
+        String onDisk = new String(Files.readAllBytes(asset.toPath()), StandardCharsets.UTF_8);
+        assertFalse(onDisk.contains("hwfee-library-fixes"));
+        assertTrue(onDisk.contains("__DATA__"));
+    }
+
+    @Test public void relativeZipCoverResolvesInsideItsOwnImportedLesson() throws Exception {
+        String html = player("Offline cover").replace("\"audio\":", "\"image\":\"images/cover.jpg\",\"audio\":");
+        LessonStore.Report report = importFiles("cet6/offline/player.html", html,
+                "cet6/offline/images/cover.jpg", "image fixture");
+        assertEquals(1, report.imported.size());
+        JSONObject lesson = store.libraryData().getJSONArray("lessons").getJSONObject(0);
+        assertEquals("/lessons/cet6-offline/images/cover.jpg", lesson.getString("image"));
+        assertEquals(html, read(new File(store.root(), "cet6-offline/player.html")));
+    }
+
+    @Test public void unifiedPackReplacesByStableIdAndHidesEarlierVariantsWithoutDeletingTheirFiles() throws Exception {
+        String original = player("Lesson");
+        importFiles("cet4/episode/player.html", original, "cet6/episode/player.html", original);
+        String unified = original.replace("\"id\":\"shared-payload-id\"", "\"id\":\"episode\"");
+        JSONObject course = new JSONObject().put("schema", 2).put("id", "episode");
+        // The payload field order must not affect recognition of the stable course id.
+        unified = unified.replace("\"title\":", "\"hwfeeCourse\":" + course + ",\"title\":");
+        LessonStore.Report report = importFiles("unified/episode/player.html", unified);
+        assertTrue(report.failed.toString(), report.failed.isEmpty());
+        assertEquals("episode", report.imported.get(0));
+        JSONArray library = store.libraryData().getJSONArray("lessons");
+        assertEquals(1, library.length());
+        assertEquals("Lesson", library.getJSONObject(0).getString("title"));
+        assertEquals(2, library.getJSONObject(0).getJSONArray("legacyIds").length());
+        assertEquals(original, read(new File(store.root(), "cet6-episode/player.html")));
+        assertEquals(original, read(new File(store.root(), "cet4-episode/player.html")));
+        report = importFiles("different-wrapper/episode/player.html", unified.replace("Lesson", "Revised"));
+        assertEquals("episode", report.imported.get(0));
+        assertEquals(1, store.libraryData().getJSONArray("lessons").length());
+        assertEquals("Revised", store.libraryData().getJSONArray("lessons").getJSONObject(0).getString("title"));
+    }
+
+    @Test public void malformedCanonicalIdCannotReplaceAnotherCourse() throws Exception {
+        String html = player("Invalid").replace("\"title\":", "\"hwfeeCourse\":{\"schema\":2,\"id\":\"../other\"},\"title\":");
+        LessonStore.Report report = importFiles("unified/bad/player.html", html);
+        assertTrue(report.imported.isEmpty());
+        assertEquals(1, report.failed.size());
     }
 }

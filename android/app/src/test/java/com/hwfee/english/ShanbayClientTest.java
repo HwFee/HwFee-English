@@ -65,6 +65,9 @@ public class ShanbayClientTest {
             server.enqueue(new MockResponse().setResponseCode(403));
             assertEquals("FORBIDDEN", requestFailure(client, "GET", "/forbidden").code);
 
+            server.enqueue(new MockResponse().setResponseCode(404));
+            assertEquals("NOT_FOUND", requestFailure(client, "GET", "/missing").code);
+
             server.enqueue(new MockResponse().setResponseCode(429));
             assertEquals("RATE_LIMITED", requestFailure(client, "GET", "/limited").code);
         }

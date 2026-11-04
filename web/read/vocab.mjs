@@ -1,6 +1,21 @@
-/** Fetches every page before returning entries, so callers can publish only complete vocab sets. */
-export async function fetchVocabulary(fetchPage, { pageSize = 1000, maxPages = 100 } = {}) {
+export const CATEGORY_BITS = { today: 1, wordbook: 2, learned: 4, unlearned: 8 };
+
+/** A missing or malformed check must never be treated as "not in the wordbook". */
+export function wordbookMembership(payload, vocabId) {
+  if (!Array.isArray(payload?.objects)) throw new Error('生词本状态格式无效');
+  const item = payload.objects.find((entry) => String(entry?.vocab_id) === String(vocabId));
+  if (!item || typeof item.exists !== 'boolean') throw new Error('生词本没有返回这个词的状态');
+  return item.exists;
+}
+
+/**
+ * Fetches every page before returning, so callers can publish only complete vocab sets.
+ * counts[category] is the number of distinct headwords carrying that category's bit;
+ * variants count toward highlight masks but not toward headword counts.
+ */
+export async function fetchVocabularyWithCounts(fetchPage, { pageSize = 1000, maxPages = 100 } = {}) {
   const masks = new Map();
+  const headwords = new Map();
   const pageSignatures = new Set();
   let total = null;
   let fetched = 0;
@@ -32,14 +47,98 @@ export async function fetchVocabulary(fetchPage, { pageSize = 1000, maxPages = 1
         const word = value.trim().toLowerCase();
         masks.set(word, (masks.get(word) || 0) | mask);
       }
+      const headword = String(item.vocab).trim().toLowerCase();
+      headwords.set(headword, (headwords.get(headword) || 0) | mask);
     }
 
     if (fetched + list.length > total) throw new Error('扇贝生词分页数量超过总数');
     fetched += list.length;
-    if (fetched >= total) return [...masks.entries()];
+    if (fetched >= total) break;
   }
 
-  throw new Error('扇贝生词超过分页上限或未读取完整');
+  if (fetched < (total ?? Infinity)) throw new Error('扇贝生词超过分页上限或未读取完整');
+
+  const counts = {};
+  for (const name of Object.keys(CATEGORY_BITS)) {
+    counts[name] = 0;
+    for (const mask of headwords.values()) {
+      if (mask & CATEGORY_BITS[name]) counts[name] += 1;
+    }
+  }
+  return { entries: [...masks.entries()], counts };
+}
+
+export async function fetchVocabulary(fetchPage, opts) {
+  return (await fetchVocabularyWithCounts(fetchPage, opts)).entries;
+}
+
+/**
+ * Dashboard totals use the collection API and the current book's simple-learned
+ * list. Highlight-feed totals describe a different subset of the user's words.
+ * A category whose answer is malformed, or whose entries do not carry the
+ * requested bit (the filter was ignored), is left out of the result, so the
+ * caller keeps the number it already shows instead of printing a wrong one.
+ */
+export async function fetchLiveVocabCounts(fetchCategory, { categories = Object.keys(CATEGORY_BITS) } = {}) {
+  const answers = await Promise.all(categories.map(async (name) => {
+    try {
+      return [name, categoryTotal(await fetchCategory(name), name)];
+    } catch {
+      return null;
+    }
+  }));
+  const counts = {};
+  for (const answer of answers) if (answer) counts[answer[0]] = answer[1];
+  return counts;
+}
+
+/** Validated page total; failures let the caller retain the last known number. */
+function categoryTotal(payload, name) {
+  const official = name === 'wordbook' || name === 'learned';
+  const rows = official ? payload?.objects : payload?.vocabs;
+  if (!payload || typeof payload !== 'object' || !Array.isArray(rows)
+      || !Number.isSafeInteger(payload.total) || payload.total < 0) {
+    throw new Error('扇贝生词计数格式无效');
+  }
+  if (official) return payload.total;
+  const bit = CATEGORY_BITS[name] ?? 0;
+  for (const item of payload.vocabs) {
+    const mask = Number(item?.categories);
+    if (!Number.isSafeInteger(mask) || bit === 0 || (mask & bit) === 0) throw new Error('扇贝生词分类筛选未生效');
+  }
+  return payload.total;
+}
+
+/**
+ * Count distinct words present in a text against the mask map. Each unique
+ * word counts once per category bit its mask carries; variants count through
+ * the mask of the entry they belong to, and a word in both categories counts
+ * in both.
+ */
+export function countArticleCategories(words, masks) {
+  const counts = { wordbook: 0, today: 0 };
+  const seen = new Set();
+  for (const word of words) {
+    const key = String(word).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const mask = masks.get(key) || 0;
+    if (mask & CATEGORY_BITS.wordbook) counts.wordbook += 1;
+    if (mask & CATEGORY_BITS.today) counts.today += 1;
+  }
+  return counts;
+}
+
+/** Four totals, each a non-negative safe integer or null when still unknown. */
+export function validateVocabularyCounts(counts) {
+  if (!counts || typeof counts !== 'object') return null;
+  const out = {};
+  for (const name of Object.keys(CATEGORY_BITS)) {
+    const value = counts[name];
+    if (value !== null && (!Number.isSafeInteger(value) || value < 0)) return null;
+    out[name] = value;
+  }
+  return out;
 }
 
 /** Returns a validated, duplicate-merged cache or null without allowing Map construction to throw. */

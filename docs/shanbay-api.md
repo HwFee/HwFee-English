@@ -27,8 +27,14 @@ Login page to drive the WebView: `https://web.shanbay.com/bayaccount/login?chann
 | GET | `/wordsapp/user_material_books/{id}/learning/statuses` | today's counts |
 | GET | `/wordsapp/user_material_books/{id}/learning/items/sync` | completed item ids |
 | GET | `/wordsapp/user_material_books/{id}/learning/words/today_learning_items?type_of=NEW\|REVIEW&page=&ipp=50` | today's words, paged |
+| GET | `/wordsapp/user_material_books/{id}/learning/words/simple_learned_items?page=1&ipp=1` | current book's mastered (marked 太简单) total |
 
 The `today_learning_items` response carries a `data` string that must be decoded — that is what `vendor/decode.mjs` in 扇贝阅读助手 does. Port it as-is.
+
+The `simple_learned_items` response uses the same decoder. Resolve `{id}` from
+`materialbook_id` on `/wordsapp/user_material_books/current`; the translation feed's
+`learning_book_id` is a different identifier. Use decoded `total` for 已掌握.
+The book's `finish_count` describes words already studied, rather than words marked 太简单.
 
 ## Article
 
@@ -44,6 +50,7 @@ Body comes as XML-ish markup: `<para><sent>` with possibly CDATA. Parse paragrap
 
 | Method | Path | Body |
 |---|---|---|
+| GET | `/wordscollection/words?page=1&ipp=1` | `{objects, total}`; official collection total for 生词本 |
 | GET | `/wordscollection/words_check?vocab_ids=a&vocab_ids=b` | → `{objects:[{vocab_id, exists}]}` |
 | POST | `/wordscollection/words` | `{vocab_id, business_id, unique_code?, source_page_url?, source_scene_title?}` |
 | DELETE | `/wordscollection/words` | `{vocab_ids: [...]}` |
@@ -70,6 +77,16 @@ Vocab entry shape: `{vocab, variants, categories}`, e.g.
 - `variants` carries the inflections — highlighting has to match these, not just `vocab`.
 - `categories` is a bitmask in the order `today, wordbook, learned, unlearned` (so `8` = unlearned).
 
+This feed is a subset for highlighting. Its `wordbook` and `learned` totals must not
+populate the home dashboard. Live checks on 2026-11-03 returned 364 collected words
+versus 244 in the highlight feed, and 79 mastered words in the current book versus
+563 in the feed. These are separate scopes, not interchangeable counts.
+
+After a confirmed collection edit, invalidate freshness and start a background count
+request immediately. Keep the last official numbers in memory and local storage;
+failed or older requests never blank or overwrite them. Home re-entry rechecks after
+60 seconds. Persisted counts use `countsVersion: 2` to reject old highlight totals.
+
 ## Word meaning — verified on device
 
 | Method | Path |
@@ -83,14 +100,24 @@ uses is `definitions.cn[]` → `{def, pos, dict_id, sense_id}`, e.g.
 `401` = session expired, `404` = the word is not in the dictionary (show the popup without a meaning
 rather than failing).
 
-## Not used
+## Sentence tools and account quota
 
-Decided against, recorded so nobody re-adds it: the extension's server-side translation.
+Shanbay is the primary sentence provider; a configured personal API is the fallback.
+
+- `GET https://apiv3.shanbay.com/bay-translate/quota` — cookie-authenticated account query,
+  `{remaining_percent, reset_at}`. Verified 2026-11-04: HTTP 200, 100%, reset
+  `2026-11-05T04:00:00+08:00`. Found in the official extension's `background.js` and
+  `chunks/chrome-polyfill-j21f0XIq.js`. It works independently of sentence-request cooldowns.
 
 - `POST https://sse.shanbay.com/bay-translate/sse/translate_sentence` — SSE, `{request_id, text}`
 - `POST …/sse/sentence_analysis` — SSE, `{request_id, text}`
 - `POST …/sse/translate_batch`, `…/sse/page_chat`
 
-They are metered (`usage` event → `remaining_percent`, `quota_exceeded` → `reset_at`) and gated (`403` → `vip_required`). Translation runs on the user's own LLM key instead.
+They are metered (`usage` event → `remaining_percent`, `quota_exceeded` → `reset_at`) and gated on
+`translate_sentence` (`403` → `vip_required`). Failures use the personal API when configured.
+
+Full wire format of the 长难句 pair — request bodies, every SSE event, the eight component types, and a real
+captured stream — is in [shanbay-sentence-analysis.md](shanbay-sentence-analysis.md). Measured there: one
+55-word analysis costs 2 quota points, its translation 7.
 
 Sentence bookmarks (`/bay-translate/bookmarks`, `/bookmarks/check?sentence=`, `PUT`/`DELETE /bookmarks/{id}`) remain available if saving translated sentences is ever wanted — they are a separate store from the wordbook.

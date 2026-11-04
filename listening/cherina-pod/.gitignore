@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+
+# 密钥（严禁提交）
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# ── 跑出来的内容一律不入库 ─────────────────────────────────────────────
+# episodes/ 下全部是第三方播客的音频、转写、译文、讲义和课程库，属于你的本地数据。
+# ⚠ transcript.json 含词级时间戳，重新转写要花钱，请自行备份。
+episodes/*
+# 例外：合成样例（人工编写、非真实内容），供新 clone 和 CI 跑通流程
+!episodes/_sample-intro/
+episodes/_sample-intro/*
+!episodes/_sample-intro/bilingual.json
+!episodes/_sample-intro/meta.json
+!episodes/_sample-intro/transcript.json
+
+# 内部材料（调研、运营），不属于开源内容
+private/
+
+# ZCode 会话产物
+.zcode/
+
+
+# lessons/ 是 episodes/ 派生出来的双水平成品（含内嵌译文和硬链接音频），同样不入库。
+lessons/

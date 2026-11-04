@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the cherina-pod tokens by npm run assets:generate. -->
+<resources>
+    <color name="brand_blue">#2997FF</color>
+    <color name="brand_flame">#FF6B00</color>
+    <color name="ic_launcher_background">#1C1C1E</color>
+    <color name="splash_background">#000000</color>
+</resources>
