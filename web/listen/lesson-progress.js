@@ -2,6 +2,7 @@
 (() => {
   window.__hwfeeProgress = {
     install({ state, audio, segments, sentences, save: originalSave, goSeg: originalGo, setStep: originalStep, render }) {
+      const review = new URLSearchParams(location.search).get('review') === '1';
       if (!state.parts || typeof state.parts !== 'object' || Array.isArray(state.parts)) state.parts = {};
       if (state.completionVersion !== 2) {
         for (let index = 0; index < segments.length; index++) {
@@ -53,6 +54,7 @@
         audio.playbackRate = state.speed;
       };
       const save = () => {
+        if (review) return;
         if (!switching) capture();
         state.updatedAt = Date.now();
         originalSave(); lastSaved = Date.now();

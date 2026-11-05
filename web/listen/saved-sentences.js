@@ -69,6 +69,11 @@
   }
   async function play(item) {
     if (!item) return;
+    // Both the saved card and review panel return to the lesson's full player.
+    if (window.parent !== window && window.parent.hwfeeOpenSavedSentence) {
+      window.parent.hwfeeOpenSavedSentence(item);
+      return;
+    }
     if (activeKey === item.k && playing) { await pause(); return; }
     const current = ++request;
     cancelMetadata?.(); cancelMetadata = null;

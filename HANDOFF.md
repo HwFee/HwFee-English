@@ -2,6 +2,33 @@
 
 One Android app for two personal tools: **cherina-pod 精听** lessons and a **扇贝阅读** daily reader.
 
+## Playback/appearance investigation — 2026-11-04 (source, not released)
+
+Branch `fix/playback-and-appearance` starts from main `5d5be21`. Saved/review Play
+now opens the full lesson player at the saved audio time. Explicit appearance is
+propagated to the shell and loaded frames, and the personal API row is centered.
+Replacement imports invalidate an open player's stale timestamp table; native
+seeks pause the old audio while positioning. See
+[the investigation](docs/PLAYBACK-APPEARANCE-2026-11-04.md).
+
+User clarification: bookmark replay must **not overwrite normal learning progress**.
+It now uses a temporary `review=1` player document with progress/migration/resume-link
+writes disabled. Normal course navigation creates a normal document and restores
+the original checkpoint, including when the native decoder was playing a bookmark.
+
+**The user's primary issue remains normal sentence-by-sentence drill overrun,
+not only looping/seeking. Do not report that issue as solved by the seek fix.**
+Native snapshots now preserve measured boundary overshoot separately from the
+clamped UI checkpoint. The user confirms reimporting the revised ZIP and restarting
+still reproduces it specifically in the second stage. A follow-up prioritizes the
+drill stop over late-tick sentence resynchronisation and uses the presentation clock
+only in that stage. Follow-up checks: 5 listening web tests and 31 targeted native
+tests passed; see the investigation for regression evidence. No affected phone
+has been tested. No release APK
+has been made for this pass. Web checks (185 full-suite tests plus the new
+served-player regression), 18 targeted native tests, and Chromium appearance/layout
+measurements passed; all 43 Android web assets match source.
+
 ## v1.0.8 built — 2026-11-04
 
 Install `dist/HwFee-English-1.0.8.apk` over the previous release (versionCode 9, same certificate).

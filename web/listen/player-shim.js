@@ -41,6 +41,7 @@
   }
 
   function savePos(force) {
+    if (window.__hwfeeReviewPlayback) return;
     const el = audio();
     if (!el || recovering || el.error || el.readyState < 1 || !Number.isFinite(el.currentTime)) return;
     const now = Date.now();
@@ -334,7 +335,7 @@
     const detail = { dir, title: info.title, segment: (progress.seg || 0) + 1,
       step: progress.step || 0, playing: !el.paused && !el.ended && !el.error };
     try {
-      localStorage.setItem('hwfee:listen:last', JSON.stringify({ ...detail, at: now }));
+      if (!window.__hwfeeReviewPlayback) localStorage.setItem('hwfee:listen:last', JSON.stringify({ ...detail, at: now }));
       window.parent?.hwfeePlayerState?.(detail);
     } catch {}
     if (!api || el.dataset.hwfeeNativeAudio === '1') return;

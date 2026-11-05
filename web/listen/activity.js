@@ -1,5 +1,6 @@
 // Listening time follows media progress, so background timer throttling does not erase it.
 (() => {
+  const review = new URLSearchParams(location.search).get('review') === '1';
   const KEY = 'cherina-pod:activity';
   const audio = document.querySelector('audio');
   const dayKey = (at) => {
@@ -32,7 +33,7 @@
   }
 
   function tick(force = false) {
-    if (!audio) return;
+    if (review || !audio) return;
     const next = snapshot();
     const elapsed = (next.at - previous.at) / 1000;
     if (!force && elapsed < .2 && elapsed >= 0) return;
@@ -56,6 +57,7 @@
   }
 
   function completeSegment(segment) {
+    if (review) return;
     tick(true);
     const data = load();
     const id = `${location.pathname}#${segment}`;

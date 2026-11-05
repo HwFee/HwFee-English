@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
+import { runInNewContext } from 'node:vm';
 
 const migration = await readFile(new URL('../web/listen/progress-migration.js', import.meta.url), 'utf8');
 const progress = await readFile(new URL('../web/listen/lesson-progress.js', import.meta.url), 'utf8');
 const template = await readFile(new URL('../listening/cherina-pod/scripts/templates/player.html', import.meta.url), 'utf8');
+const lessonServer = await readFile(new URL('../android/app/src/main/java/com/hwfee/english/LessonServer.java', import.meta.url), 'utf8');
 
 test('reimporting split sentences restores the same audio time, stage, ratings and completed segments from either old level', () => {
   const dom = new JSDOM('<audio></audio>', { url: 'https://localhost/lessons/episode/player.html', runScripts: 'outside-only' });
@@ -74,4 +76,55 @@ test('the first drill sentence cannot complete the stage, and the last must fini
   assert.equal(player.st.steps[1], 2);
   player.next(); assert.equal(player.st.step, 2);
   dom.window.close();
+});
+
+test('served saved-sentence navigation waits for metadata restoration and selects by audio time', async () => {
+  const data = { id: 'test', title: 'Test', podcast: '', audio: '', ui: 'zh', source_lang: 'en', target_lang: 'zh', notes: [],
+    segments: [{ n: 1, from: 0, to: 3, start: 0, end: 30, rate: 100 }],
+    sentences: [0, 10, 20].map((a, i) => ({ a, b: a + 10, n: i + 1, s: 'A complete sentence.', t: '一句完整的话。', w: [a] })) };
+  const dom = new JSDOM(template.replace('__DATA__', JSON.stringify(data)), {
+    url: 'https://localhost/lessons/test/player.html', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  try {
+    const w = dom.window, audio = w.document.querySelector('audio');
+    let ready = 0, paused = true, plays = 0;
+    Object.defineProperties(audio, { readyState: { get: () => ready }, paused: { get: () => paused } });
+    audio.play = () => { paused = false; plays++; return Promise.resolve(); };
+    audio.pause = () => { paused = true; };
+    w.requestAnimationFrame = () => 1; w.cancelAnimationFrame = () => {};
+    w.eval(progress);
+    const method = lessonServer.slice(lessonServer.indexOf('static String injectNativeAudioHooks'));
+    const literal = method.slice(method.indexOf('String hooks ='), method.indexOf('return html.replace'));
+    const hooks = [...literal.matchAll(/"(?:\\.|[^"\\])*"/g)].map(match => JSON.parse(match[0])).join('');
+    const marker = 'renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();';
+    const code = [...w.document.querySelectorAll('script')].find(node => !node.type && node.textContent.includes('function tick()')).textContent;
+    w.eval(code.replace(marker, hooks + marker).replace(/\}\)\(\);\s*$/, 'window.testState=st;})();'));
+    w.__hwfeeOpenSentence({ n: 1, a: 15 }); // Old n=1 now falls in the second split sentence.
+    assert.equal(plays, 0);
+    ready = 4; audio.dispatchEvent(new w.Event('loadedmetadata'));
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(plays, 1);
+    assert.equal(audio.currentTime, 10);
+    assert.equal(w.testState.cur, 1);
+    assert.equal(w.testState.step, 1);
+  } finally { dom.window.close(); }
+});
+
+test('a delayed second-stage tick stops the current sentence instead of advancing to the next', () => {
+  let tick = template.slice(template.indexOf('function tick(){'), template.indexOf('au.addEventListener("play"'));
+  const method = lessonServer.slice(lessonServer.indexOf('static String injectNativeAudioHooks'), lessonServer.indexOf('static String injectActivityFixes'));
+  for (const replacement of method.matchAll(/\.replace\(("(?:\\.|[^"\\])*"),\s*("(?:\\.|[^"\\])*")\)/g)) {
+    tick = tick.replaceAll(JSON.parse(replacement[1]), JSON.parse(replacement[2]));
+  }
+  for (const step of [0, 1, 2, 3]) {
+    const state = { cur: 0, seg: 0, step, steps: {} };
+    const audio = { currentTime: 10.8, paused: false, pause() { this.paused = true; } };
+    const scope = { st: state, au: audio, S: [{ a: 0, b: 10 }, { a: 10, b: 20 }], G: [{ n: 1, to: 2 }],
+      loop: false, findIdx: () => 1, segOf: () => 0, setCur: i => { state.cur = i; },
+      trackTime() {}, markWords() {}, renderTime() {}, requestAnimationFrame() { return 1; } };
+    runInNewContext(tick + ';tick();', scope);
+    assert.equal(audio.paused, step === 1);
+    assert.equal(state.cur, step === 1 ? 0 : 1);
+    if (step === 1) assert.equal(audio.currentTime, 9.95);
+  }
 });

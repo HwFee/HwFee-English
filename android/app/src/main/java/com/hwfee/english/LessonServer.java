@@ -383,13 +383,23 @@ public final class LessonServer {
     static String injectNativeAudioHooks(String html) {
         String marker = "renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();";
         String hooks = "window.__hwfeeNativeTick=function(){cancelAnimationFrame(raf);var before=st.cur;tick();if(before!==st.cur)tick();};"
+                + "var savedRequest=0;window.__hwfeeOpenSentence=function(item){var request=++savedRequest;"
+                + "function open(){if(request!==savedRequest)return;var i=Number.isFinite(item.a)?findIdx(item.a+.001):Number(item.n)-1;"
+                + "if(!Number.isInteger(i)||i<0||i>=S.length)return;au.pause();goSeg(segOf(i),i);setStep(1,false);playSentence(i);}"
+                + "if(au.readyState>=1)open();else au.addEventListener('loadedmetadata',function(){queueMicrotask(open);},{once:true});};"
                 + "window.__hwfeeNativeRange=function(){var s=S[st.cur],g=G[st.seg];"
-                + "return {start:s.a,end:(loop||st.step===1)?s.b:S[g.to-1].b,loop:loop};};"
+                + "return {start:s.a,end:(loop||st.step===1)?s.b:S[g.to-1].b,loop:loop,drill:st.step===1};};"
                 + "if(window.__hwfeeProgress){var cp=window.__hwfeeProgress.install({state:st,audio:au,"
                 + "segments:G,sentences:S,save:save,goSeg:goSeg,setStep:setStep,render:function(){"
                 + "renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();}});"
                 + "save=cp.save;goSeg=cp.goSeg;setStep=cp.setStep;}";
         return html.replace(marker, hooks + marker)
+                .replace("function save(){", "function save(){if(window.__hwfeeReviewPlayback)return;")
+                .replace("var sv=JSON.parse(localStorage.getItem(KEY)||\"null\")",
+                        "var sv=window.__hwfeeReviewPlayback?null:JSON.parse(localStorage.getItem(KEY)||\"null\")")
+                // In drill mode, late progress must stop the current sentence before
+                // the generic timeline resynchronisation can advance to another one.
+                .replace("if(t<s.a-0.6||t>s.b+0.6)", "if((t<s.a-0.6||t>s.b+0.6)&&!(st.step===1&&t>=s.b-0.03))")
                 .replace("if(k>=0)goSeg(k);", "if(k>=0&&k!==st.seg)goSeg(k);");
     }
 

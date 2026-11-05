@@ -105,7 +105,8 @@ public class PlaybackService extends Service {
             com.getcapacitor.JSObject range = null;
             if (intent.hasExtra("start") && intent.hasExtra("end")) range = new com.getcapacitor.JSObject()
                     .put("start", intent.getDoubleExtra("start", 0)).put("end", intent.getDoubleExtra("end", 0))
-                    .put("loop", intent.getBooleanExtra("loop", false));
+                    .put("loop", intent.getBooleanExtra("loop", false))
+                    .put("drill", intent.getBooleanExtra("drill", false));
             long transport = intent.hasExtra("transport") ? intent.getLongExtra("transport", 0) : nativeEngine.reserveTransport();
             nativeEngine.playRequest(transport, intent.getStringExtra("sourceId"), range);
         } else if (ACTION_START.equals(action) || ACTION_STATE.equals(action)) {
