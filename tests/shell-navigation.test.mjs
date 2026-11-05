@@ -79,6 +79,52 @@ test('saved clips preserve the course checkpoint and reopening replaces its old 
   f.dom.window.close();
 });
 
+test('saved sentence play opens its original lesson at the bookmarked sentence', async () => {
+  const f = fixture(); await settle();
+  const doc = f.library.contentDocument;
+  doc.body.innerHTML = '<script id="data" type="application/json">{"lessons":[{"id":"current","dir":"/lessons/current","legacyIds":["cet6-current"]}]}</script><div id="saved"><button data-k="cet6-current#4">Play</button></div>';
+  f.library.contentWindow.localStorage.setItem('cherina-pod:saved', JSON.stringify([
+    { k: 'cet6-current#4', dir: 'cet6-current', n: 4 },
+  ]));
+  f.w.hwfeeOpenSavedSentence({ k: 'cet6-current#4', dir: 'cet6-current', n: 4, a: 30 }); await settle();
+  assert.equal(f.doc.getElementById('playerFrame').dataset.src, '/lessons/current/player.html?review=1');
+  assert.equal(f.doc.getElementById('playerFrame').hidden, true, 'uses the standard player readiness flow');
+  f.dom.window.close();
+});
+
+test('saved playback uses a separate document and normal opening requests the original checkpoint', async () => {
+  const f = fixture(); await settle(); f.open(); f.ready(); await settle(); f.finishChrome(); await settle();
+  const player = f.doc.getElementById('playerFrame');
+  let flushed = 0;
+  player.contentDocument.querySelector('audio').pause = () => {};
+  player.contentWindow.__hwfeeFlushProgress = () => { flushed++; };
+  f.library.contentDocument.body.innerHTML += '<script id="data" type="application/json">{"lessons":[{"id":"current","dir":"/lessons/current"}]}</script>';
+  f.w.hwfeeClosePlayer();
+  f.w.hwfeeOpenSavedSentence({ dir: '/lessons/current', n: 4, a: 30 }); await settle();
+  assert.equal(flushed, 1, 'normal checkpoint is flushed before entering review');
+  assert.equal(player.dataset.src, '/lessons/current/player.html?review=1');
+  assert.equal(player.dataset.review, '1');
+  f.ready(); await settle(); f.finishChrome(); await settle();
+  player.contentDocument.querySelector('audio').pause = () => {};
+  f.w.hwfeeClosePlayer(); f.open(); await settle();
+  assert.equal(player.dataset.review, '0');
+  assert.equal(player.dataset.src, '/lessons/current/player.html?resumeCheckpoint=1#seg=1');
+  f.dom.window.close();
+});
+
+test('reimporting the open course discards its old sentence timeline even with the same URL', async () => {
+  const f = fixture(); await settle(); f.open(); f.ready(); await settle(); f.finishChrome(); await settle();
+  const player = f.doc.getElementById('playerFrame'); let paused = 0;
+  player.contentDocument.querySelector('audio').pause = () => { paused++; };
+  f.w.Capacitor.Plugins.Lessons.importZip = async () => ({ imported: ['current'], failed: [] });
+  f.doc.getElementById('importBtn').click(); await settle();
+  assert.equal(paused, 1);
+  assert.equal(player.dataset.src, undefined);
+  assert.equal(player.getAttribute('src'), 'about:blank');
+  assert.equal(player.hidden, true);
+  f.dom.window.close();
+});
+
 test('a failed lesson load restores navigation instead of leaving the library trapped', async () => {
   const f = fixture(); await settle(); f.open(); f.run(8000); await settle();
   assert.equal(f.doc.getElementById('app').classList.contains('is-immersive'), false);

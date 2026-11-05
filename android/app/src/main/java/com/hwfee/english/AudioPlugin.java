@@ -48,7 +48,8 @@ public class AudioPlugin extends Plugin {
                             .putExtra("transport", request).putExtra("sourceId", call.getString("sourceId"));
                     if (call.getData().has("start") && call.getData().has("end")) intent
                             .putExtra("start", call.getData().optDouble("start", 0)).putExtra("end", call.getData().optDouble("end", 0))
-                            .putExtra("loop", call.getData().optBoolean("loop", false));
+                            .putExtra("loop", call.getData().optBoolean("loop", false))
+                            .putExtra("drill", call.getData().optBoolean("drill", false));
                     ContextCompat.startForegroundService(getContext(), intent);
                     call.resolve(nativeEngine.snapshot());
                 } catch (Exception error) { call.reject("无法恢复后台播放，请重试"); }
@@ -65,7 +66,8 @@ public class AudioPlugin extends Plugin {
                     case "seek": nativeEngine.seek(call.getData().optDouble("position", 0)); break;
                     case "rate": nativeEngine.rate(call.getData().optDouble("rate", 1)); break;
                     case "range": nativeEngine.range(call.getData().optDouble("start", 0),
-                            call.getData().optDouble("end", 0), call.getData().optBoolean("loop", false)); break;
+                            call.getData().optDouble("end", 0), call.getData().optBoolean("loop", false),
+                            call.getData().optBoolean("drill", false)); break;
                     default: break;
                 }
                 call.resolve(nativeEngine.snapshot());

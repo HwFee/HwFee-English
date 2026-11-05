@@ -41,6 +41,16 @@ test('saved playback prepares the native decoder and uses the exact clip range w
   f.dom.window.close();
 });
 
+test('embedded saved and review playback opens the original player without starting an inline decoder', async () => {
+  const f = fixture(), opened = [];
+  Object.defineProperty(f.w, 'parent', { value: { hwfeeOpenSavedSentence: row => opened.push(row) } });
+  await f.w.__hwfeeSaved.play(item);
+  assert.deepEqual(opened, [item]);
+  assert.equal(f.preparations.length, 0);
+  assert.equal(f.commands.length, 0);
+  f.dom.window.close();
+});
+
 test('the library refreshes immediately when a saved line changes in another document', async () => {
   const f = fixture(); let updates = 0;
   f.w.__hwfeeSaved.mount(() => { updates++; });

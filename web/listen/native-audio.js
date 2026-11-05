@@ -55,6 +55,7 @@
     state = { ...state, prepared: false, playing: false, seeking: false, ended: false, position: 0, error: '' };
     anchoredAt = performance.now();
     preparePromise = api.nativePrepare({ source, sourceId, lesson: payload.id, title: payload.title || document.title,
+      restoreCheckpoint: new URLSearchParams(location.search).get('resumeCheckpoint') === '1',
       artist: payload.podcast || '', artwork: payload.image ? new URL(payload.image, location.href).href : '' })
       .then(next => { if (requested === generation) apply(next); })
       .catch(error => {

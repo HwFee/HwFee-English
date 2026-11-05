@@ -46,16 +46,19 @@ final class NativeAudioEngine {
     private final java.util.concurrent.atomic.AtomicLong transport = new java.util.concurrent.atomic.AtomicLong();
     private long lastPageUpdate;
     private volatile long position, duration;
+    private volatile long boundaryPosition = -1, boundaryOvershoot;
     private long rangeStart, rangeEnd;
-    private boolean loop;
+    private boolean loop, drill;
     private volatile float rate = 1f;
     private float decoderRate = 1f;
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             if (!prepared || player == null) return;
             try {
-                if (!seeking) position = player.getCurrentPosition();
+                if (!seeking) position = playbackPosition();
                 if (!seeking && playing() && rangeEnd > rangeStart && position >= rangeEnd - 10) {
+                    boundaryPosition = position;
+                    boundaryOvershoot = Math.max(0, position - rangeEnd);
                     if (loop) { seek(rangeStart / 1000.0); }
                     else {
                         player.pause(); running = false; wanted = false; atBoundary = true;
@@ -103,7 +106,8 @@ final class NativeAudioEngine {
         execute(() -> {
             if (request != transport.get() || !accepts(token)) return;
             if (data != null && data.has("start") && data.has("end"))
-                range(data.optDouble("start", 0), data.optDouble("end", 0), data.optBoolean("loop", false));
+                range(data.optDouble("start", 0), data.optDouble("end", 0), data.optBoolean("loop", false),
+                        data.optBoolean("drill", false));
             playInternal();
         });
     }
@@ -111,6 +115,12 @@ final class NativeAudioEngine {
     boolean accepts(String token) { return token == null || token.isEmpty() || token.equals(sourceId); }
     boolean playing() {
         return running;
+    }
+    private long playbackPosition() {
+        long coarse = player.getCurrentPosition();
+        if (!drill || !running || seeking) return coarse;
+        try { return SentenceClock.position(coarse, player.getTimestamp(), System.nanoTime()); }
+        catch (IllegalStateException | UnsupportedOperationException unavailable) { return coarse; }
     }
     JSObject snapshot() {
         // Queries must stay responsive even when a cold decoder's Binder call is blocked.
@@ -120,6 +130,7 @@ final class NativeAudioEngine {
                 .put("artist", artist).put("artwork", artwork).put("playing", playing())
                 .put("prepared", prepared).put("seeking", seeking).put("ended", ended)
                 .put("position", position / 1000.0).put("duration", duration / 1000.0)
+                .put("boundaryPosition", boundaryPosition / 1000.0).put("boundaryOvershootMs", boundaryOvershoot)
                 .put("rate", rate).put("error", error).put("sequence", sequence).put("reused", reusedSource);
     }
     private void emit(String event) {
@@ -135,6 +146,7 @@ final class NativeAudioEngine {
         if (Looper.myLooper() != handler.getLooper()) { reserveTransport(); execute(() -> prepare(data, call)); return; }
         String next = data.optString("source", "");
         if (next.equals(source) && prepared && error.isEmpty()) {
+            if (data.optBoolean("restoreCheckpoint", false)) pauseInternal();
             reusedSource = true; metadata(data);
             emit("");
             call.resolve(snapshot().put("reused", true)); return;
@@ -145,6 +157,8 @@ final class NativeAudioEngine {
         position = 0; duration = 0; wanted = false; ended = false; atBoundary = false; error = "";
         rate = 1f;
         rangeEnd = 0; rangeStart = 0;
+        drill = false;
+        boundaryPosition = -1; boundaryOvershoot = 0;
         preparing = call;
         emit("loading");
         prepareDecoder();
@@ -260,6 +274,10 @@ final class NativeAudioEngine {
         if (!prepared || player == null) return;
         position = Math.min(position, duration); seeking = true;
         try {
+            // seekTo is asynchronous. Keeping the decoder running here lets the old
+            // sentence continue while the ticker deliberately skips boundary checks.
+            // Preserve wanted so onSeekComplete can resume only after positioning.
+            if (running) { player.pause(); running = false; }
             if (Build.VERSION.SDK_INT >= 26) player.seekTo(position, MediaPlayer.SEEK_CLOSEST);
             else player.seekTo((int) Math.min(Integer.MAX_VALUE, position));
         } catch (IllegalStateException failure) { fail("无法定位到该播放位置"); }
@@ -273,9 +291,13 @@ final class NativeAudioEngine {
         emit("");
     }
     void range(double start, double end, boolean repeat) {
-        if (Looper.myLooper() != handler.getLooper()) { execute(() -> range(start, end, repeat)); return; }
+        range(start, end, repeat, false);
+    }
+    void range(double start, double end, boolean repeat, boolean sentenceDrill) {
+        if (Looper.myLooper() != handler.getLooper()) { execute(() -> range(start, end, repeat, sentenceDrill)); return; }
         if (!Double.isFinite(start) || !Double.isFinite(end)) return;
         rangeStart = Math.max(0, Math.round(start * 1000)); rangeEnd = Math.max(0, Math.round(end * 1000)); loop = repeat;
+        drill = sentenceDrill;
     }
     private void fail(String message) {
         error = message; wanted = false; prepared = false; seeking = false; running = false;

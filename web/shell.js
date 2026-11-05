@@ -194,6 +194,22 @@ function reloadLibrary() {
   }
 }
 
+function invalidateImportedPlayer(imported) {
+  if (!Array.isArray(imported) || !imported.includes(lessonDir(playerFrame.dataset.src))) return;
+  // A replaced lesson has a new sentence timeline even when its URL is unchanged.
+  // Keeping this iframe alive would keep using the old end times indefinitely.
+  try {
+    playerFrame.contentDocument?.querySelector('audio')?.pause();
+    playerFrame.contentWindow?.__hwfeeFlushProgress?.();
+  } catch {}
+  closePlayer();
+  nowPlaying = null;
+  playerReady = false;
+  delete playerFrame.dataset.src;
+  delete playerFrame.dataset.savedClip;
+  playerFrame.src = 'about:blank';
+}
+
 function reloadRead() {
   try {
     readFrame.contentWindow.location.replace('/read/index.html?t=' + Date.now());
@@ -221,6 +237,7 @@ async function importLessons() {
     if (imported === 0 && failed.length) toast('没有导入成功', { kind: 'error', detail: failed[0], ms: 6000 });
     else if (failed.length) toast(`导入 ${imported} 节，${failed.length} 节失败`, { kind: 'error' });
     else toast(`已导入 ${imported} 节课`, { kind: 'success' });
+    invalidateImportedPlayer(result?.imported);
     reloadLibrary();
   } catch (error) {
     const message = String(error?.message ?? error);
@@ -245,6 +262,7 @@ async function consumeShared() {
     const imported = result?.imported?.length ?? 0;
     if (!imported) return;
     toast(`已导入 ${imported} 节课`, { kind: 'success' });
+    invalidateImportedPlayer(result.imported);
     reloadLibrary();
   } catch (error) {
     toast('导入失败', { kind: 'error', detail: error.message });
@@ -295,13 +313,13 @@ function togglePlayer() {
 function decorateLibrary() {
   const doc = listenFrame.contentDocument;
   if (!doc) return;
-  try { listenFrame.contentWindow?.hwfeeUpdateLibrary?.(nowPlaying ? {
+  try { listenFrame.contentWindow?.hwfeeUpdateLibrary?.(nowPlaying && playerFrame.dataset.review !== '1' ? {
     ...nowPlaying, playing: playerPlaying(),
   } : null); } catch {}
   if (!nowPlaying) return;
   const playing = playerPlaying();
   for (const link of doc.querySelectorAll('a[href*="player.html"]')) {
-    const active = lessonDir(link.getAttribute('href')) === nowPlaying.dir;
+    const active = playerFrame.dataset.review !== '1' && lessonDir(link.getAttribute('href')) === nowPlaying.dir;
     link.classList.toggle('is-playing', active);
     const circle = link.querySelector('.go');
     if (circle) {
@@ -332,6 +350,15 @@ let listenNavigating = false;
 let readerPageOpen = false;
 let playerReady = false;
 let playerReadyTimer = 0;
+let pendingSavedSentence = null;
+
+function playPendingSavedSentence() {
+  if (!pendingSavedSentence || !playerReady) return;
+  const item = pendingSavedSentence;
+  pendingSavedSentence = null;
+  playerFrame.contentWindow?.__hwfeeOpenSentence?.(item);
+}
+
 
 function waitForPlayer() {
   clearTimeout(playerReadyTimer);
@@ -343,8 +370,9 @@ function waitForPlayer() {
   }, 8000);
 }
 
-function openLesson(href) {
+function openLesson(href, savedSentence = null) {
   if (!href) return;
+  pendingSavedSentence = savedSentence;
   if (playerFrame.dataset.savedClip === '1') {
     const revision = ++playerNavigation;
     let stopping;
@@ -353,23 +381,31 @@ function openLesson(href) {
       if (revision !== playerNavigation || state.tab !== 'listen') return;
       delete playerFrame.dataset.savedClip;
       nowPlaying = null;
-      openLesson(href);
+      openLesson(href, savedSentence);
     });
     return;
   }
   let url;
   try { url = new URL(href, location.origin + '/listen/library.html'); } catch { return; }
+  const review = Boolean(savedSentence);
+  const wasReview = playerFrame.dataset.review === '1';
+  if (review) url.searchParams.set('review', '1');
+  else if (wasReview) url.searchParams.set('resumeCheckpoint', '1');
   const dir = lessonDir(href);
   try { listenFrame.contentWindow?.__hwfeeSaved?.pause(); } catch {}
   // Same lesson: keep the document and its audio, just bring it back to the front.
-  if (nowPlaying && dir && dir === nowPlaying.dir && playerFrame.dataset.savedClip !== '1') {
+  if (nowPlaying && dir && dir === nowPlaying.dir && review === wasReview && playerFrame.dataset.savedClip !== '1') {
     if (playerReady && lessonDir(playerFrame.contentWindow.location.href) === dir
-        && playerFrame.contentDocument?.querySelector('audio')) showPlayer();
+        && playerFrame.contentDocument?.querySelector('audio')) { void showPlayer().then(() => { if (!playerFrame.hidden) playPendingSavedSentence(); }); }
     else { showPlayerWhenLoaded = true; updateImmersive(); waitForPlayer(); }
     return;
   }
-  try { playerFrame.contentWindow?.__hwfeeFlushProgress?.(); } catch {}
+  try {
+    playerFrame.contentDocument?.querySelector('audio')?.pause();
+    playerFrame.contentWindow?.__hwfeeFlushProgress?.();
+  } catch {}
   delete playerFrame.dataset.savedClip;
+  playerFrame.dataset.review = review ? '1' : '0';
   playerFrame.dataset.src = url.pathname + url.search + url.hash;
   nowPlaying = { dir, title: '' };
   playerReloads = 0;
@@ -400,6 +436,7 @@ window.hwfeeReloadPlayer = () => {
 
 /** Hide the player without unloading it. Returns false when no player was open. */
 function closePlayer() {
+  pendingSavedSentence = null;
   if (playerFrame.hidden && !showPlayerWhenLoaded) return false;
   showPlayerWhenLoaded = false;
   clearTimeout(playerReadyTimer);
@@ -411,6 +448,18 @@ function closePlayer() {
   try { listenFrame.contentWindow?.hwfeeRefreshSaved?.(); } catch {}
   return true;
 }
+
+window.hwfeeOpenSavedSentence = item => {
+  try {
+    const doc = listenFrame.contentDocument;
+    const lessons = JSON.parse(doc.getElementById('data')?.textContent || '{}').lessons || [];
+    const raw = String(item.dir || '').replace(/\/$/, '');
+    const id = /^\/lessons\/([^/]+)/.exec(raw)?.[1] || raw.split('/').pop();
+    const lesson = lessons.find(row => row.id === id || row.dir === raw || row.legacyIds?.includes(id));
+    if (!lesson?.dir) throw new Error('请重新导入对应课程');
+    openLesson(lesson.dir + '/player.html', item);
+  } catch (error) { toast('无法打开收藏句子', { kind: 'error', detail: error.message }); }
+};
 
 window.hwfeeClosePlayer = closePlayer;
 window.hwfeeSavedChanged = () => { try { listenFrame.contentWindow?.hwfeeRefreshSaved?.(); } catch {} };
@@ -447,7 +496,7 @@ function wireListenFrame() {
           return;
         }
         const circle = event.target.closest?.('.go');
-        const isHere = nowPlaying && lessonDir(link.getAttribute('href')) === nowPlaying.dir;
+        const isHere = playerFrame.dataset.review !== '1' && nowPlaying && lessonDir(link.getAttribute('href')) === nowPlaying.dir;
         // The round button is the transport for the lesson that is open: tap pauses,
         // the card around it is still the way back into the player.
         if (circle && isHere && playerFrame.contentDocument?.querySelector('audio')) {
@@ -480,7 +529,7 @@ window.hwfeePlayerReady = (source) => {
     if (nowPlaying && title) nowPlaying.title = title;
   } catch {}
   if (showPlayerWhenLoaded) {
-    showPlayer();
+    void showPlayer().then(() => { if (!playerFrame.hidden) playPendingSavedSentence(); });
   }
   decorateLibrary();
 };
@@ -962,9 +1011,43 @@ const darkModeInput = $('darkMode');
 const appearanceSystem = $('appearanceSystem');
 let appearanceSnapshot = { mode: 'system', dark: false };
 let appearanceRevision = 0;
+const appearanceMedia = new WeakMap();
+
+// WebView may retain its original prefers-color-scheme after a DayNight change.
+// Select each document's existing palette directly; never reload a playing lesson.
+function applyDocumentAppearance(doc, dark) {
+  if (!doc?.documentElement) return;
+  doc.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  const visit = rules => {
+    for (const rule of rules) {
+      if (rule.media) {
+        const original = appearanceMedia.get(rule) || rule.media.mediaText;
+        const match = /^\(prefers-color-scheme:\s*(dark|light)\)$/.exec(original);
+        if (match) {
+          appearanceMedia.set(rule, original);
+          rule.media.mediaText = (match[1] === 'dark') === dark ? 'all' : 'not all';
+        }
+      }
+      if (rule.cssRules) visit(rule.cssRules);
+    }
+  };
+  for (const sheet of doc.styleSheets) {
+    try { visit(sheet.cssRules); } catch { /* A foreign sheet cannot be inspected. */ }
+  }
+}
+
+function syncAppearanceDocuments() {
+  applyDocumentAppearance(document, appearanceSnapshot.dark);
+  for (const frame of [listenFrame, readFrame, playerFrame]) {
+    try { applyDocumentAppearance(frame.contentDocument, appearanceSnapshot.dark); } catch {}
+  }
+}
+for (const frame of [listenFrame, readFrame, playerFrame]) frame.addEventListener('load', syncAppearanceDocuments);
+window.addEventListener('load', syncAppearanceDocuments);
 
 function renderAppearance(snapshot, available = true) {
   appearanceSnapshot = snapshot;
+  syncAppearanceDocuments();
   darkModeInput.checked = Boolean(snapshot.dark);
   darkModeInput.disabled = !available;
   appearanceSystem.hidden = snapshot.mode === 'system' || !available;
@@ -975,7 +1058,7 @@ function renderAppearance(snapshot, available = true) {
 
 async function loadAppearance() {
   if (typeof tabBarApi?.getAppearance !== 'function') {
-    renderAppearance({ mode: 'system', dark: false }, false);
+    renderAppearance({ mode: 'system', dark: Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches) }, false);
     return;
   }
   const revision = ++appearanceRevision;
@@ -1007,6 +1090,9 @@ async function changeAppearance(mode) {
 darkModeInput.addEventListener('change', () => void changeAppearance(darkModeInput.checked ? 'dark' : 'light'));
 appearanceSystem.addEventListener('click', () => void changeAppearance('system'));
 window.hwfeeAppearanceChanged = loadAppearance;
+window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (appearanceSnapshot.mode === 'system') void loadAppearance();
+});
 
 const prepareDaily = () => { void readFrame.contentWindow?.hwfeePrepareDaily?.(); };
 window.hwfeeAppResumed = () => { prepareDaily(); void loadAppearance(); };

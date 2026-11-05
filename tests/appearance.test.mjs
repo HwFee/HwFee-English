@@ -49,3 +49,25 @@ test('a failed appearance write restores the last confirmed switch state', async
   assert.match(f.doc.getElementById('toast').textContent, /外观切换失败/);
   f.dom.window.close();
 });
+
+test('explicit palettes reach shell and loaded lesson styles without relying on the system media query', async () => {
+  const f = fixture(); await settle();
+  const style = f.doc.createElement('style');
+  style.textContent = '@media (prefers-color-scheme: dark) { body { color: white; } }';
+  f.doc.head.append(style);
+  const frame = f.doc.getElementById('listenFrame');
+  frame.contentDocument.open();
+  frame.contentDocument.write('<html><head><style>@media (prefers-color-scheme:dark){body{background:black}}</style></head><body></body></html>');
+  frame.contentDocument.close();
+  frame.dispatchEvent(new f.w.Event('load'));
+  assert.equal(style.sheet.cssRules[0].media.mediaText, 'all');
+  assert.equal(frame.contentDocument.styleSheets[0].cssRules[0].media.mediaText, 'all');
+  const input = f.doc.getElementById('darkMode');
+  input.checked = false; input.dispatchEvent(new f.w.Event('change')); await settle();
+  assert.equal(style.sheet.cssRules[0].media.mediaText, 'not all');
+  assert.equal(frame.contentDocument.styleSheets[0].cssRules[0].media.mediaText, 'not all');
+  assert.equal(frame.contentDocument.documentElement.style.colorScheme, 'light');
+  input.checked = true; input.dispatchEvent(new f.w.Event('change')); await settle();
+  assert.equal(style.sheet.cssRules[0].media.mediaText, 'all');
+  f.dom.window.close();
+});

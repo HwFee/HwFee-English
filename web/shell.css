@@ -671,7 +671,7 @@ main { flex: 1; position: relative; overflow: hidden; }
 .ai-card .settings-help { left: 18px; right: 18px; top: 46px; bottom: auto; width: auto; }
 .api-settings { margin-top: 10px; border-top: 1px solid var(--line); }
 /* Same row language as the model picker: label, current value, chevron. */
-.api-settings summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 40px; padding: 8px 0 6px; color: var(--ink); font-size: 14px; }
+.api-settings summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 40px; padding: 14px 0; color: var(--ink); font-size: 14px; }
 .api-settings summary::-webkit-details-marker { display: none; }
 .api-settings summary .api-current { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; font-weight: 400; color: var(--ink3); }
 .api-settings summary .api-current .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -699,3 +699,6 @@ main { flex: 1; position: relative; overflow: hidden; }
 .ai-card .pretranslation-setting .settings-help {
   top: auto; bottom: calc(100% - 6px); left: 0; right: auto; width: min(320px, 100%);
 }
+
+/* Put the closed API row between its own separators, with equal vertical space. */
+.ai-card .api-settings + .pretranslation-setting { margin-top: 0; }
