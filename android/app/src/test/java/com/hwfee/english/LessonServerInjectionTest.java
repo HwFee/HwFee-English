@@ -79,6 +79,9 @@ public class LessonServerInjectionTest {
         String fixed = LessonServer.injectNativeAudioHooks(LessonServer.injectPlayerIdentity(input));
         assertTrue(fixed.indexOf("native-audio.js") < fixed.indexOf("var D="));
         assertTrue(fixed.indexOf("lesson-progress.js") < fixed.indexOf("var D="));
+        assertTrue(fixed.indexOf("saved-state.js") < fixed.indexOf("var D="));
+        assertTrue(fixed.contains("__hwfeeSavedState.match(item,S)"));
+        assertFalse(fixed.contains("findIdx(item.a+.001)"));
         assertTrue(fixed.contains("window.__hwfeeNativeRange"));
         assertTrue(fixed.contains("window.__hwfeeProgress.install"));
         assertFalse(fixed.contains("if(k>=0)goSeg(k);"));
@@ -112,13 +115,40 @@ public class LessonServerInjectionTest {
                 + "\"title\":\"Course\",\"podcast\":\"Test\",\"segments\":2,\"duration\":120,\"rate\":100}]}";
         String fixed = LessonServer.injectLibraryFixes(source.replace("__DATA__", data));
         assertTrue(fixed.indexOf("saved-sentences.js") < fixed.indexOf("var D=JSON.parse"));
+        assertTrue(fixed.indexOf("saved-state.js") < fixed.indexOf("saved-sentences.js"));
         assertTrue(fixed.contains("function playClip(x){window.__hwfeeSaved.play(x);}"));
         assertFalse(fixed.contains("stopAt=x.b+0.15"));
         assertTrue(fixed.contains("window.hwfeeRefreshSaved=function()"));
         assertTrue(fixed.contains("window.__hwfeeSaved.mount(window.hwfeeRefreshSaved)"));
+        assertTrue(fixed.contains("writeJ('cherina-pod:saved',all.filter(function(y){return y.k!==x.k;}))"));
+        assertTrue(fixed.contains("due=SAV.slice()"));
+        assertTrue(fixed.contains("queue=SAV.slice()"));
+        assertFalse(fixed.contains("(x.due||0)<=Date.now()"));
+        assertTrue(fixed.contains("L.good")); // Keep the original 记住了 label.
+        assertTrue(fixed.contains("hwfee-review-layout"));
         assertFalse(fixed.contains("location.reload()"));
         java.nio.file.Path fixture = java.nio.file.Path.of("build/reports/listening-library-fixture.html");
         java.nio.file.Files.createDirectories(fixture.getParent());
+        java.nio.file.Files.writeString(fixture, fixed);
+    }
+
+    @Test public void v3PlayerFixtureUsesPreviewGeometryAndKeepsNativeHooks() throws Exception {
+        String template = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/assets/public/listen/player.template.html"));
+        String data = "{\"id\":\"course\",\"dir\":\"/lessons/course\",\"ui\":\"zh\","
+                + "\"title\":\"A cosy day at home in the UK\",\"podcast\":\"English with Evie\","
+                + "\"duration\":30,\"audio\":\"audio/episode.mp4\",\"source_lang\":\"en\",\"target_lang\":\"zh\",\"notes\":[],"
+                + "\"segments\":[{\"n\":1,\"from\":0,\"to\":2,\"start\":0,\"end\":30,\"rate\":120}],"
+                + "\"sentences\":[{\"n\":1,\"a\":0,\"b\":10,\"s\":\"I popped into the kitchen to make a proper cup of tea.\",\"t\":\"我去厨房泡了杯茶。\",\"w\":[0]},"
+                + "{\"n\":2,\"a\":10,\"b\":20,\"s\":\"It turns out the kettle had boiled dry ages ago.\",\"t\":\"结果水壶早就烧干了。\",\"w\":[10]}]}";
+        String fixed = LessonServer.injectPlayerFixes(template.replace("__DATA__", data).replace("__TITLE__", "V3 Player"));
+        fixed = LessonServer.injectActivityFixes(LessonServer.injectPlayerIdentity(LessonServer.injectNativeAudioHooks(fixed)));
+        assertTrue(fixed.contains(".top #bHome"));
+        assertTrue(fixed.contains(".ln.cur .s{font-size:25px"));
+        assertTrue(fixed.contains("grid-template-columns:minmax(0,1fr) auto auto auto minmax(0,1fr)"));
+        assertTrue(fixed.contains("window.__hwfeeNativeRange"));
+        fixed = fixed.replace("</body>", "<script src=\"/listen/player-shim.js\"></script>"
+                + "<script src=\"/listen/player-v3.js\"></script></body>");
+        java.nio.file.Path fixture = java.nio.file.Path.of("build/reports/listening-player-fixture.html");
         java.nio.file.Files.writeString(fixture, fixed);
     }
 

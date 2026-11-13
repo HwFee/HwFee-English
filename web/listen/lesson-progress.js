@@ -54,7 +54,7 @@
         audio.playbackRate = state.speed;
       };
       const save = () => {
-        if (review) return;
+        if (review || audio.hwfeeSleepActive || audio.dataset.hwfeeSleepRestoring === '1') return;
         if (!switching) capture();
         state.updatedAt = Date.now();
         originalSave(); lastSaved = Date.now();

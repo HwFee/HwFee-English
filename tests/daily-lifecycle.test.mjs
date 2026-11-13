@@ -12,6 +12,7 @@ function fixture({ sessionFails = false, saved = null, pendingState = false } = 
   const w = dom.window;
   let now = Date.parse('2026-11-03T12:00:00+08:00');
   let calls = 0, sessions = 0;
+  const highlightCalls = [], dailyWords = [];
   const preparations = [];
   const notices = [];
   let failure = null, offline = false, vocabFailure = null;
@@ -23,9 +24,10 @@ function fixture({ sessionFails = false, saved = null, pendingState = false } = 
   };
   const date = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(now);
   Object.assign(w, {
-    matchMedia: () => ({ matches: false }), scrollTo() {}, hydrateIcons() {}, initGestures() {}, decorate() {},
+    matchMedia: () => ({ matches: false }), scrollTo() {}, hydrateIcons() {}, initGestures() {}, resetGestures() {}, decorate() {},
+    setTodayVocabulary: (words, date) => dailyWords.push({ words, date }),
     IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
-    loadHighlightVocab: async () => { if (vocabFailure) throw new Error(vocabFailure); },
+    loadHighlightVocab: async options => { highlightCalls.push(options); if (vocabFailure) throw new Error(vocabFailure); },
     feedback: (message, options) => { notices.push({ message, ...options }); },
     refreshVocabCounts: async () => {}, vocabCounts: () => counts,
     articleLegendCounts: () => ({}), cachedArticles: () => [], cachedArticle: () => null,
@@ -45,9 +47,9 @@ function fixture({ sessionFails = false, saved = null, pendingState = false } = 
     prepareTranslation: async (article) => { preparations.push(article.date); },
   });
   w.eval(script);
-  return { dom, w, preparations, notices, calls: () => calls, sessions: () => sessions,
+  return { dom, w, preparations, notices, highlightCalls, dailyWords, calls: () => calls, sessions: () => sessions,
     fail(message) { failure = message; }, offline(value) { offline = value; }, failVocab(message) { vocabFailure = message; },
-    tomorrow() { now += 86400000; }, restoreSession() { sessionFails = false; },
+    tomorrow() { now += 86400000; }, minute() { now += 60001; }, restoreSession() { sessionFails = false; },
     setCounts(value) { counts = value; w.document.dispatchEvent(new w.CustomEvent('hwfee:vocab')); } };
 }
 
@@ -107,6 +109,31 @@ test('a saved article renders and prepares before the startup network request re
   } finally { f.dom.window.close(); }
 });
 
+test('yesterday’s cached reading keeps its real date on both home cards', async () => {
+  const article = { date: '2026-11-02', title: 'Yesterday', subtitle: '旧文章', paragraphs: ['Birds fly.'] };
+  const f = fixture({ pendingState: true, saved: { today: { date: article.date, status: {} }, article } });
+  try {
+    f.w.cachedArticles = () => [{ ...article, words: 2, paragraphs: 1 }];
+    await settle();
+    assert.match(f.w.document.getElementById('heroSlot').textContent, /11月2日/);
+    assert.equal(f.w.document.querySelector('#recentList .rd').textContent, '11/02');
+  } finally { f.dom.window.close(); }
+});
+
+test('restoring connectivity refreshes a same-day offline reading once', async () => {
+  const f = fixture();
+  try {
+    f.offline(true); await settle();
+    assert.match(f.w.document.getElementById('heroSlot').textContent, /离线缓存/);
+    f.offline(false);
+    f.w.dispatchEvent(new f.w.Event('online')); await settle();
+    assert.equal(f.calls(), 2);
+    assert.doesNotMatch(f.w.document.getElementById('heroSlot').textContent, /离线缓存/);
+    f.w.dispatchEvent(new f.w.Event('focus')); await settle();
+    assert.equal(f.calls(), 2);
+  } finally { f.dom.window.close(); }
+});
+
 test('returning to the app recovers when the initial session check had no network', async () => {
   const f = fixture({ sessionFails: true });
   try {
@@ -143,5 +170,42 @@ test('manual refresh reports success, partial failures, offline fallback and err
     assert.equal(f.notices.at(-1).detail, '登录已失效');
     assert.match(f.w.document.getElementById('heroSlot').textContent, /Daily article/);
     assert.equal(f.w.document.getElementById('refreshBtn').disabled, false);
+  } finally { f.dom.window.close(); }
+});
+
+test('entry revalidates highlights independently of the offline cache, shares repeated triggers and retries after a minute', async () => {
+  const f = fixture();
+  try {
+    await settle();
+    const forced = () => f.highlightCalls.filter(options => options?.force).length;
+    assert.equal(forced(), 1, 'startup does not trust a six-hour snapshot as a live vocabulary');
+    assert.equal(f.dailyWords.at(-1).date, '2026-11-03');
+    await Promise.all([f.w.hwfeePrepareDaily(), f.w.hwfeePrepareDaily()]); await settle();
+    assert.equal(forced(), 1);
+    f.minute(); await f.w.hwfeePrepareDaily(); await settle();
+    assert.equal(forced(), 2);
+    f.tomorrow(); await f.w.hwfeePrepareDaily(); await settle();
+    assert.equal(forced(), 3);
+  } finally { f.dom.window.close(); }
+});
+
+test('the reader shows highlight failure and an explicit retry without leaving the article', async () => {
+  const f = fixture();
+  try {
+    await settle();
+    f.w.document.querySelector('.hero').click(); await settle();
+    assert.match(f.w.document.querySelector('.reader-gesture-hint').textContent, /长按句子.*卡片外收起/);
+    f.failVocab('分类暂不可用');
+    const button = f.w.document.getElementById('readerHighlightRefresh');
+    for (let i = 0; i < 20; i++) button.click();
+    await settle();
+    assert.match(f.w.document.getElementById('readerHighlightState').textContent, /部分单词可能未高亮/);
+    assert.match(f.notices.at(-1).detail, /刷新高亮/);
+    assert.equal(button.disabled, false);
+    const before = f.highlightCalls.length;
+    f.failVocab(null); button.click(); await settle();
+    assert.equal(f.highlightCalls.length, before + 1);
+    assert.match(f.w.document.getElementById('readerHighlightState').textContent, /今日学习下划线/);
+    assert.equal(f.w.document.getElementById('readerView').hidden, false);
   } finally { f.dom.window.close(); }
 });

@@ -20,12 +20,15 @@ const GAP = 8;
 let current = null;
 let dismissedWord = null;
 
-/** An outside tap on a word dismisses the current card; a subsequent tap can open another. */
-export function consumeDismissedWordTap(target) {
+/** Dismiss first, then allow a fresh gesture; a retargeted release must not reopen a card. */
+export function consumeDismissedWordTap(target, event = null) {
   const pending = dismissedWord;
   dismissedWord = null;
-  return Boolean(pending && Date.now() - pending.at < 1200
-    && target?.closest?.('.w') === pending.word);
+  if (!pending || Date.now() - pending.at >= 1200) return false;
+  if (event?.type === 'pointerdown' || pending.event?.type === 'click') return pending.event === event;
+  if (event) return pending.event?.pointerId == null || event.pointerId == null
+    || pending.event.pointerId === event.pointerId;
+  return target?.closest?.('.w') === pending.word;
 }
 
 /**
@@ -69,21 +72,23 @@ export function placePopover({ anchor, popover, viewport,
 
 export function closePopover() {
   if (!current) return;
-  const { el, anchor, observer, onPointerDown, parentDocument, onParentPointerDown, onResize,
+  const { el, anchor, observer, onPointerDown, onClick, parentDocument, onParentPointerDown, onResize,
     onScroll, onVisibility, viewport, onClose } = current;
   current = null;
-  onClose?.();
   dismissedWord = null;
   anchor?.classList.remove('is-anchor');
   observer?.disconnect();
   document.removeEventListener('pointerdown', onPointerDown, true);
+  document.removeEventListener('click', onClick, true);
   parentDocument?.removeEventListener('pointerdown', onParentPointerDown, true);
+  parentDocument?.removeEventListener('click', onParentPointerDown, true);
   window.removeEventListener('resize', onResize);
   window.removeEventListener('scroll', onScroll, true);
   document.removeEventListener('visibilitychange', onVisibility);
   viewport?.removeEventListener('resize', onResize);
   viewport?.removeEventListener('scroll', onResize);
   el.remove();
+  onClose?.();
 }
 
 /** iOS-style segmented control for the sentence card: tab switch only, body is the caller's. */
@@ -171,7 +176,8 @@ export function openPopover({ anchor, kind = 'sentence', label = '', tabs = null
     });
     if (!result.visible || (result.maxHeight !== null && result.maxHeight < Math.min(size.height, 88))) {
       closePopover();
-      if (result.visible) feedback('屏幕空间不足', { detail: '稍作滚动后再次长按' });
+      if (result.visible) feedback('屏幕放不下这张卡片', { kind: 'error',
+        detail: '稍作滚动或缩小字号后，再次长按句子' });
       return;
     }
 
@@ -189,37 +195,43 @@ export function openPopover({ anchor, kind = 'sentence', label = '', tabs = null
     el.style.visibility = '';
   }
 
+  const dismiss = () => { if (current?.el === el) closePopover(); };
   const onPointerDown = (event) => {
-    if (el.contains(event.target)) return;
+    if (current?.el !== el || el.contains(event.target)) return;
     const word = event.target.closest?.('.w');
-    closePopover();
-    if (word) {
-      const pending = { word, at: Date.now() };
-      dismissedWord = pending;
-      setTimeout(() => { if (dismissedWord === pending) dismissedWord = null; }, 1200);
-    }
+    dismiss();
+    // Pointer capture and small finger movement can change the eventual click target.
+    // Remember the gesture, not just the word that received pointerdown.
+    const pending = { word, event, at: Date.now() };
+    dismissedWord = pending;
+    setTimeout(() => { if (dismissedWord === pending) dismissedWord = null; }, 1200);
   };
+  // Keyboard, accessibility services and some WebViews can send a click without pointerdown.
+  // Reader gestures consume the release-click of a long press before this capture listener.
+  const onClick = onPointerDown;
   let parentDocument = null;
   try { if (window.top !== window) parentDocument = window.top.document; } catch {}
-  const onParentPointerDown = () => closePopover();
-  const onResize = () => closePopover();
+  const onParentPointerDown = dismiss;
+  const onResize = dismiss;
   const onScroll = (event) => {
     // Let the card's own long answer scroll; page or parent-container scrolling dismisses it.
     if (event.target?.nodeType && el.contains(event.target)) return;
-    closePopover();
+    dismiss();
   };
-  const onVisibility = () => { if (document.hidden) closePopover(); };
+  const onVisibility = () => { if (document.hidden) dismiss(); };
   const viewport = window.visualViewport;
   const observer = typeof IntersectionObserver === 'function'
     ? new IntersectionObserver((entries) => {
-        if (!entries[0]?.isIntersecting) closePopover();
+        if (!entries[0]?.isIntersecting) dismiss();
       })
     : null;
 
-  current = { el, anchor, observer, onPointerDown, parentDocument, onParentPointerDown, onResize,
+  current = { el, anchor, observer, onPointerDown, onClick, parentDocument, onParentPointerDown, onResize,
     onScroll, onVisibility, viewport, onClose };
   document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('click', onClick, true);
   parentDocument?.addEventListener('pointerdown', onParentPointerDown, true);
+  parentDocument?.addEventListener('click', onParentPointerDown, true);
   window.addEventListener('resize', onResize);
   window.addEventListener('scroll', onScroll, { capture: true, passive: true });
   document.addEventListener('visibilitychange', onVisibility);

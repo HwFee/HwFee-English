@@ -129,7 +129,8 @@ public final class LessonServer {
         int end = data < 0 ? -1 : html.indexOf("</script>", data);
         if (end >= 0) {
             end += "</script>".length();
-            html = html.substring(0, end) + "<script src=\"/listen/saved-sentences.js\"></script>" + html.substring(end);
+            html = html.substring(0, end) + "<script src=\"/listen/saved-state.js\"></script>"
+                    + "<script src=\"/listen/saved-sentences.js\"></script>" + html.substring(end);
         }
         int play = html.indexOf("function playClip(x){");
         int render = play < 0 ? -1 : html.indexOf("\nfunction renderSaved()", play);
@@ -139,16 +140,74 @@ public final class LessonServer {
         int mount = html.indexOf(marker);
         if (mount >= 0) {
             mount += marker.length();
-            String hook = "window.hwfeeRefreshSaved=function(){SAV=readJ('cherina-pod:saved',[]);"
-                    + "due=SAV.filter(function(x){return (x.due||0)<=Date.now();});"
-                    + "$('hSaved').textContent=L.saved+(SAV.length?' '+SAV.length:'');"
+            String hook = "window.hwfeeSavedResolved=function(k,item){if(queue)queue.forEach(function(x){if(x.k===k)Object.assign(x,item);});};"
+                    // Open review from the freshest bookmark list: the template's SAV copy is
+                    // only refreshed by hwfeeRefreshSaved, so a stale copy made the entry a no-op.
+                    + "window.hwfeeOpenReview=function(){SAV=readJ('cherina-pod:saved',[]);"
+                    + "if(!SAV.length)return false;openReview();return $('rv').classList.contains('on');};"
+                    + "window.hwfeeRefreshSaved=function(){SAV=readJ('cherina-pod:saved',[]);"
+                    + "due=SAV.slice();"
+                    + "if(window.hwfeeRenderSavedHeader)window.hwfeeRenderSavedHeader(SAV.length);"
+                    + "else $('hSaved').textContent=L.saved+(SAV.length?' '+SAV.length:'');"
                     + "var v=document.querySelector('#stRev .v');if(v){var unit=v.querySelector('small');"
-                    + "v.textContent=String(due.length);if(unit)v.appendChild(unit);}renderSaved();"
+                    + "v.textContent=String(due.length);if(unit)v.appendChild(unit);}(window.renderSaved||renderSaved)();"
+                    + "if($('rv').classList.contains('on')&&queue&&queue[qi]){var current=queue[qi],index=qi;"
+                    + "queue=(queue||[]).filter(function(x){return SAV.some(function(y){return y.k===x.k;});});"
+                    + "qi=queue.findIndex(function(x){return x.k===current.k;});"
+                    + "if(qi<0){qi=Math.min(index,queue.length);showCard();}"
+                    + "else if(queue.length)$('rvN').textContent=(qi+1)+' / '+queue.length;}"
                     + "window.__hwfeeSaved.paint();};window.__hwfeeSaved.mount(window.hwfeeRefreshSaved);";
+            hook += "window.hwfeeCloseReview=function(){if(!$('rv').classList.contains('on'))return false;"
+                    + "window.__hwfeeSaved.pause();$('rv').classList.remove('on');window.hwfeeRefreshSaved();return true;};"
+                    + "document.addEventListener('keydown',function(e){if(e.key==='Escape'&&window.hwfeeCloseReview())e.preventDefault();});";
             html = html.substring(0, mount) + hook + html.substring(mount);
         }
-        return html.replace("au.pause();$(\"rv\").classList.remove(\"on\");location.reload();",
-                "window.__hwfeeSaved.pause();$(\"rv\").classList.remove(\"on\");window.hwfeeRefreshSaved();");
+        String reviewStyle = "<style id=\"hwfee-review-layout\">"
+                + ".rv{padding-bottom:var(--island-reserve,92px)}"
+                // Match the reader's leading glass back button; keep clear of the shell's import action.
+                + ".rv-h{position:relative;flex-shrink:0;justify-content:center;"
+                + "height:calc(64px + env(safe-area-inset-top));padding:calc(10px + env(safe-area-inset-top)) 68px 10px}"
+                + ".rv-h .x{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;"
+                + "width:44px;height:44px;color:var(--ink2);background:rgba(252,252,253,.62);"
+                + "border:1px solid rgba(255,255,255,.55);-webkit-backdrop-filter:blur(18px) saturate(180%);"
+                + "backdrop-filter:blur(18px) saturate(180%);box-shadow:0 10px 26px rgba(29,29,31,.16),"
+                + "inset 0 1px 0 rgba(255,255,255,.75);transition:transform .15s ease}"
+                + ".rv-h .x:active{transform:scale(.92)}"
+                + ".rv-h .x:focus-visible{outline:2px solid var(--acc);outline-offset:3px}"
+                + ".rv-h .x svg{width:20px;height:20px;display:block}"
+                + "@media (prefers-color-scheme:dark){.rv-h .x{background:rgba(30,30,32,.62);"
+                + "border-color:rgba(255,255,255,.08);box-shadow:0 10px 26px rgba(0,0,0,.55),"
+                + "inset 0 1px 0 rgba(255,255,255,.14)}}"
+                + "@media (prefers-reduced-transparency:reduce){.rv-h .x{background:var(--bg);"
+                + "-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--line)}}"
+                + "@media (prefers-reduced-motion:reduce){.rv-h .x{transition:none}}"
+                + "@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){"
+                + ".rv-h .x{background:var(--bg)}}"
+                + ".rv-b{min-height:0;overflow-y:auto;justify-content:flex-start}"
+                + ".rv-b>#rvP{flex-shrink:0;margin-top:auto}"
+                + ".rv-b>.flip{flex-shrink:0;margin-bottom:auto}"
+                + ".rv-b:has(.grade.on)>.flip{margin-bottom:0}"
+                + ".rv-b>.grade.on{flex-shrink:0;margin-bottom:auto}"
+                + ".rv-b>.done{margin-block:auto}</style>";
+        html = html.replace("id=\"rvX\" aria-label=\"close\"",
+                "id=\"rvX\" type=\"button\" aria-label=\"返回课程库\" title=\"返回课程库\"");
+        // The hidden prompt is part of the template markup, so replace it once here instead
+        // of rewriting it from a MutationObserver after every card render.
+        html = html.replace("<div class=\"q\">· · ·</div>", "<div class=\"q\">先盲听，点一下揭开原文</div>");
+        html = html.replaceAll("(<button[^>]*\\bid=\"rvX\"[^>]*>)[\\s\\S]*?(</button>)",
+                "$1<svg viewBox=\"0 0 256 256\" fill=\"currentColor\" aria-hidden=\"true\">"
+                + "<path d=\"M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32"
+                + "l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z\"/></svg>$2");
+        return html.replace("</head>", reviewStyle + "</head>")
+                .replace("};playClip(x);", "};window.__hwfeeSaved.play(x,{toggle:false});")
+                .replace("SAV.filter(function(x){return (x.due||0)<=Date.now();})", "SAV.slice()")
+                .replace("var g=+btn.dataset.g,DAY=864e5;", "var g=+btn.dataset.g,DAY=864e5;"
+                        + "window.__hwfeeSaved.pause();if(g===2){var all=readJ('cherina-pod:saved',[]);"
+                        + "writeJ('cherina-pod:saved',all.filter(function(y){return y.k!==x.k;}));"
+                        + "queue.splice(qi,1);showCard();window.hwfeeRefreshSaved();return;}")
+                .replace("qi++;showCard();", "qi++;showCard();window.hwfeeRefreshSaved();")
+                .replace("au.pause();$(\"rv\").classList.remove(\"on\");location.reload();",
+                "window.hwfeeCloseReview();");
     }
 
     /**
@@ -186,6 +245,45 @@ public final class LessonServer {
                 + ".side .side-b{padding-bottom:calc(30px + var(--hwfee-bottom))}"
                 + ".sheet{padding-bottom:calc(24px + var(--hwfee-bottom))}"
                 + "@media (min-width:900px){.app>.dock{padding-bottom:calc(24px + var(--hwfee-bottom))}}"
+                // V3 preview geometry and typography. The generated player keeps its behavior.
+                + "@font-face{font-family:'Noto Sans SC';src:url('/fonts/NotoSansSC.woff2') format('woff2');"
+                + "font-weight:100 900;font-display:swap}"
+                + "html,body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Microsoft YaHei',sans-serif}"
+                + ".top{padding-top:calc(4px + env(safe-area-inset-top))}"
+                + ".top .col{align-items:center;gap:10px;padding:0 14px}"
+                + ".kicker{font-size:12px}.ttl{font-size:18px;line-height:1.3}"
+                + ".top .round{height:36px;min-width:36px}"
+                + ".top #bHome{width:44px;height:44px;color:var(--ink2);background:rgba(252,252,253,.68);"
+                + "border:1px solid rgba(255,255,255,.62);-webkit-backdrop-filter:blur(18px) saturate(180%);"
+                + "backdrop-filter:blur(18px) saturate(180%);box-shadow:0 10px 26px rgba(29,29,31,.14),inset 0 1px 0 rgba(255,255,255,.78)}"
+                + ".top .round.sleep{width:36px;padding:0;gap:0}"
+                + ".top .round.sleep.is-active{background:var(--acc-soft);color:var(--acc-ink)}"
+                + ".nav{padding-top:12px}.nav .col{padding:0 18px}.row1{margin-bottom:10px}"
+                + ".segchip{height:30px;padding:0 12px;font-size:13px}.steps button{height:31px;font-size:12.5px}"
+                + ".ln{padding:8px 0}.ln .s{font-size:17px;line-height:1.35}"
+                + ".ln.cur .s{font-size:25px;line-height:1.28;letter-spacing:-.024em}.ln.cur.m .s{font-size:23px;line-height:1.34}"
+                + ".ln.cur.l .s{font-size:20px;line-height:1.42}.ln.cur.xl .s{font-size:17.5px;line-height:1.5}"
+                + ".ln.cur .t{font-size:15px;line-height:1.55}.acts{gap:12px;margin-top:18px}.act{width:46px;height:46px}"
+                + ".orb{width:132px;height:132px;box-shadow:0 24px 50px rgba(0,0,0,.10)}"
+                + ".v3-blind-copy{font-size:13px;font-weight:500;color:var(--ink2)}"
+                + ".dock>.col{padding:13px 18px 14px;border:1px solid rgba(255,255,255,.62)}"
+                + ".ticks{height:12px;gap:3px}.dock .ctl{gap:16px}.skip{width:42px;height:42px}.play{width:58px;height:58px}"
+                + ".loop{width:40px;height:40px}"
+                + "@media (prefers-color-scheme:dark){.top #bHome{background:rgba(30,30,32,.72);border-color:rgba(255,255,255,.10);"
+                + "box-shadow:0 10px 26px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.14)}"
+                + ".dock>.col{border-color:rgba(255,255,255,.10)}}"
+                + "@media (prefers-reduced-transparency:reduce){.top #bHome{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--line)}}"
+                + "@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.top #bHome{background:var(--surface)}}"
+                + ".v3-sleep-scrim{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end;background:rgba(0,0,0,.32)}"
+                + ".v3-sleep-scrim[hidden]{display:none}.v3-sleep-sheet{width:100%;padding:12px 20px calc(28px + var(--hwfee-bottom));"
+                + "border-radius:28px 28px 0 0;background:var(--surface);animation:hwfee-v3-sheet-up .24s var(--ease)}"
+                + ".v3-sheet-grab{width:36px;height:4px;margin:0 auto 14px;border-radius:2px;background:var(--line)}"
+                + ".v3-sleep-sheet h3{margin:0;text-align:center;font-size:18px}.v3-sleep-sheet>p{margin:4px 0 0;text-align:center;font-size:12.5px;color:var(--ink2)}"
+                + ".v3-sleep-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}"
+                + ".v3-sleep-grid button{height:44px;border-radius:14px;background:var(--track);font-size:14px;font-weight:600}"
+                + ".v3-sleep-grid button.is-on{background:var(--acc);color:#fff}"
+                + "@keyframes hwfee-v3-sheet-up{from{transform:translateY(100%)}to{transform:none}}"
+                + "@media (prefers-reduced-motion:reduce){.v3-sleep-sheet{animation:none}}"
                 + "</style>";
         int head = html.indexOf("</head>");
         html = head >= 0 ? html.substring(0, head) + fixes + html.substring(head) : html;
@@ -345,7 +443,8 @@ public final class LessonServer {
         html = injectPlayerIdentity(html);
         html = injectActivityFixes(html);
         if (!html.contains("player-shim.js")) {
-            String tag = "<script src=\"/listen/player-shim.js\"></script>";
+            String tag = "<script src=\"/listen/player-shim.js\"></script>"
+                    + "<script src=\"/listen/player-v3.js\"></script>";
             int body = html.lastIndexOf("</body>");
             html = body >= 0
                     ? html.substring(0, body) + tag + html.substring(body)
@@ -373,9 +472,11 @@ public final class LessonServer {
         if (end < 0) return html;
         end += "</script>".length();
         return html.substring(0, end) + "<script src=\"/listen/progress-migration.js\"></script>"
+                + "<script src=\"/listen/saved-state.js\"></script>"
                 + "<script src=\"/listen/player-identity.js\"></script>"
                 + "<script src=\"/listen/player-layout.js\"></script>"
                 + "<script src=\"/listen/native-audio.js\"></script>"
+                + "<script src=\"/listen/sleep-playback.js\"></script>"
                 + "<script src=\"/listen/lesson-progress.js\"></script>"
                 + html.substring(end);
     }
@@ -384,15 +485,24 @@ public final class LessonServer {
         String marker = "renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();";
         String hooks = "window.__hwfeeNativeTick=function(){cancelAnimationFrame(raf);var before=st.cur;tick();if(before!==st.cur)tick();};"
                 + "var savedRequest=0;window.__hwfeeOpenSentence=function(item){var request=++savedRequest;"
-                + "function open(){if(request!==savedRequest)return;var i=Number.isFinite(item.a)?findIdx(item.a+.001):Number(item.n)-1;"
-                + "if(!Number.isInteger(i)||i<0||i>=S.length)return;au.pause();goSeg(segOf(i),i);setStep(1,false);playSentence(i);}"
+                + "var i=window.__hwfeeSavedState?window.__hwfeeSavedState.match(item,S):-1;"
+                + "if(i<0){window.__hwfeeSavedState&&window.__hwfeeSavedState.remove(item);"
+                + "window.parent.hwfeeSavedUnavailable&&window.parent.hwfeeSavedUnavailable(window,item);return false;}"
+                + "function open(){if(request!==savedRequest)return;au.pause();goSeg(segOf(i),i);setStep(1,false);playSentence(i);}"
                 + "if(au.readyState>=1)open();else au.addEventListener('loadedmetadata',function(){queueMicrotask(open);},{once:true});};"
-                + "window.__hwfeeNativeRange=function(){var s=S[st.cur],g=G[st.seg];"
+                + "window.__hwfeeNativeRange=function(){if(au.hwfeeSleepActive)return {start:0,end:0,loop:false,drill:false};"
+                + "var s=S[st.cur],g=G[st.seg];"
                 + "return {start:s.a,end:(loop||st.step===1)?s.b:S[g.to-1].b,loop:loop,drill:st.step===1};};"
                 + "if(window.__hwfeeProgress){var cp=window.__hwfeeProgress.install({state:st,audio:au,"
                 + "segments:G,sentences:S,save:save,goSeg:goSeg,setStep:setStep,render:function(){"
                 + "renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();}});"
-                + "save=cp.save;goSeg=cp.goSeg;setStep=cp.setStep;}";
+                + "save=cp.save;goSeg=cp.goSeg;setStep=cp.setStep;}"
+                + "if(window.__hwfeeSleepPlayback){var sleepTick=window.__hwfeeSleepPlayback.install({audio:au,state:st,"
+                + "indexAt:findIdx,segmentOf:segOf,render:function(){"
+                + "renderTop();renderSteps();renderStage();renderTicks();renderSide();renderCtl();renderTime();},"
+                + "renderLine:function(){applyLineState();updateTicks();renderSide();},"
+                + "finishTick:function(){trackTime();markWords(false);renderTime();if(!au.paused)raf=requestAnimationFrame(tick);}});"
+                + "var practiceTick=tick;tick=function(){if(!sleepTick())practiceTick();};}";
         return html.replace(marker, hooks + marker)
                 .replace("function save(){", "function save(){if(window.__hwfeeReviewPlayback)return;")
                 .replace("var sv=JSON.parse(localStorage.getItem(KEY)||\"null\")",
@@ -400,6 +510,16 @@ public final class LessonServer {
                 // In drill mode, late progress must stop the current sentence before
                 // the generic timeline resynchronisation can advance to another one.
                 .replace("if(t<s.a-0.6||t>s.b+0.6)", "if((t<s.a-0.6||t>s.b+0.6)&&!(st.step===1&&t>=s.b-0.03))")
+                // A bounded native source owns its end/loop. The page must wait for
+                // completion instead of stopping from an interpolated progress time.
+                .replace("else if(t>=s.b-0.03){", "else if(t>=s.b-0.03&&(!au.hwfeeBoundedPlayback||au.paused)){")
+                .replace("if(t<s.a-0.05||t>=s.b-0.08)au.currentTime=s.a;",
+                        "if(!au.hwfeeSleepActive&&(t<s.a-0.05||t>=s.b-0.08))au.currentTime=s.a;")
+                .replace("$(\"bLoop\").classList.toggle(\"on\",loop);",
+                        "$(\"bLoop\").classList.toggle(\"on\",loop&&!au.hwfeeSleepActive);$(\"bLoop\").disabled=!!au.hwfeeSleepActive;")
+                .replace("else if(e.key===\"r\"||e.key===\"R\"){loop=!loop;renderCtl();}",
+                        "else if(e.key===\"r\"||e.key===\"R\"){if(!au.hwfeeSleepActive){loop=!loop;renderCtl();}}")
+                .replace("function next(){", "function next(){if(au.hwfeeSleepActive){if(st.cur+1<S.length)playSentence(st.cur+1);return;}")
                 .replace("if(k>=0)goSeg(k);", "if(k>=0&&k!==st.seg)goSeg(k);");
     }
 

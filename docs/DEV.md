@@ -44,11 +44,34 @@ npm run lint:android
 for example `npm run apk -- --stacktrace`.
 
 `npm run test:web` runs just the Node tests, and `npm run test:android` runs just the native tests.
+The web command uses Node's automatic discovery (`node --test`), including on Windows; avoid
+shell globs that can silently select no tests on older Node versions.
 The native suite uses local mock HTTP servers plus Robolectric for Android service and import
 integration checks, including API 23 compatibility. Its first run downloads Android test runtimes
 from Maven; no Shanbay account, LLM key, emulator, or release signing key is required. In a proxied
 environment, both Gradle and its test JVM need the configured proxy and CA trust for those runtime
 downloads. Keep localhost excluded from the proxy so the mock servers remain local.
+
+Release builds enable [R8 code and resource optimization](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
+`android/app/proguard-rules.pro` preserves the native bridge annotations, plugin methods,
+picker callbacks. `res/raw/keep.xml` preserves
+Cordova's generated `config.xml`, which is looked up by name at runtime. External lesson shares
+accept provider-backed `content://` URIs; debug-only `Lessons.importPath` still supports local fixtures.
+
+To test the signed, optimized APK on an emulator, set `ANDROID_SERIAL` explicitly and run:
+
+```powershell
+node tools/android-build.mjs :app:connectedReleaseAndroidTest '-PhwfeeTestBuildType=release' '-PhwfeeTestRunner=com.hwfee.english.NativeBridgeInstrumentation'
+```
+
+This platform-only runner checks all five native plugins through JavaScript before and after Activity
+recreation. It needs the local signing key and never calls a paid provider. The AndroidX/JUnit
+`NativeBridgeDeviceTest` additionally checks the reflected import callback and plugin release in debug.
+Both the default debug variant and the AndroidX runner remain selected when the properties are omitted.
+
+The glass bar's light/dark previews are in `android/app/src/debug/java/com/hwfee/english/glass/GlassPreviews.kt`.
+Preview tooling is a debug dependency and is absent from the release APK. List previews with
+`android preview list 'android?app'`; render them with `android preview render 'android?app'`.
 
 Sentence analysis and translation use Shanbay SSE first, with a personal API as fallback. DeepSeek
 is the default fallback provider. Custom Android provider base URLs must use HTTPS,
@@ -69,6 +92,26 @@ The [1.0.8 verification](VALIDATION-1.0.8-2026-11-04.md) covers independent quot
 complete grammatical coverage, invalidation of partial analysis caches, and punctuation display.
 The [1.0.9 delivery](VALIDATION-1.0.9-2026-11-04.md) covers the UI rollback, appearance switch,
 saved-sentence playback and refresh, bounded bilingual cards, and compatible reimport of 39 revised lessons.
+The [1.0.10 sentence playback repair](SENTENCE-PLAYBACK-2026-11-05.md) replaces timed sentence
+stops with cached PCM clips, preserves the original lesson timeline, and records codec/device-test limits.
+The [continuous sleep mode follow-up](SLEEP-CONTINUOUS-2026-11-11.md) documents skipping automatic
+practice stops while preserving manual transport and normal checkpoints, including the native
+whole-source switch and timer-race tests.
+The [reader/settings follow-up](READER-GESTURES-2026-11-11.md) records gesture interruption recovery,
+highlight coverage/refresh and V3 settings measurements. `python tools/generate-password-font.py`
+regenerates the password-only filled-circle font from the bundled OFL Noto Sans SC source; the
+runtime input remains native and never receives a saved key.
+The [1.0.11 saved review wiring](SAVED-REVIEW-2026-11-05.md) keeps playback inside the library,
+makes 记住了 remove a bookmark, counts every saved sentence as pending, and validates old bookmarks
+only after import or when explicitly played. After `npm test`, run `node tools/verify-saved-review.mjs`
+to check the real Java-served library fixture, review actions and live counts together.
+
+`SentenceClipDeviceTest` uses a synthetic AAC asset with two consecutive tones. Set `ANDROID_SERIAL`
+to the intended emulator, then run:
+
+```sh
+node tools/android-build.mjs :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hwfee.english.SentenceClipDeviceTest
+```
 
 Regenerate app icons and splash resources with `npm run assets:generate`, then validate the five
 PNG densities and adaptive/monochrome resources with `npm run assets:check`. See
@@ -146,6 +189,9 @@ is the SAF picker behind the shell's import button.
   `cherina-pod:activity` (streak) and `cherina-pod:saved` are shared across every lesson.
 - **Audio needs byte ranges.** `LessonServer` answers `Range` requests itself; without that the
   player cannot seek, and line-by-line playback depends on seeking.
+- **Native sentence stops use bounded audio.** `SentenceClip` decodes the selected range on a worker
+  into a PCM WAV cache; the native decoder cannot read the next sentence from that file. Keep
+  player positions in the full lesson timeline and wait for completion before applying sentence-end UI.
 - **Two levels, one payload id.** cherina-pod's `cet4/` and `cet6/` folders carry the same lesson id,
   so the imported id comes from the path and the level goes into the title.
 - **Symlink tests skip on Windows.** The lesson guards compare canonical paths. A Windows host can

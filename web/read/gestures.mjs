@@ -7,9 +7,9 @@ import { analysisDisplaySegments } from './analysis-display.mjs';
 import { feedback } from './feedback.mjs';
 import { unpack } from './lib.mjs';
 import { icon } from '../icons/icons.mjs';
-import { CATEGORY_BITS, fetchVocabularyWithCounts, fetchLiveVocabCounts, validateVocabularyCache, validateVocabularyCounts, countArticleCategories, wordbookMembership } from './vocab.mjs';
+import { CATEGORY_BITS, fetchVocabularyWithCounts, fetchLiveVocabCounts, validateVocabularyCache, validateVocabularyCounts, countArticleCategories, wordbookMembership, vocabularyKey, vocabularyMask } from './vocab.mjs';
 
-const WORD_RE = /[A-Za-z]+(?:[-’'][A-Za-z]+)*/g;
+const WORD_RE = /[A-Za-z]+(?:[-‐‑’‘ʼ'][A-Za-z]+)*/g;
 const LONG_PRESS_MS = 520;
 const PRESS_SLOP = 12;
 const VOCAB_TTL_MS = 6 * 60 * 60 * 1000;
@@ -22,11 +22,14 @@ const COUNTS_VERSION = 2; // Collection total + current book's mastered words, n
 const BUSINESS_ID = 1; // /wordscollection/words rejects the POST without it
 
 let vocab = new Map();
+let vocabFamilies = [];
+let vocabDate = '';
+let todayVocabulary = new Set();
+let todayVocabularyDate = '';
 let counts = null;
 let highlighted = new Set(['today', 'wordbook']);
 let articleRoot = null;
-let pressTimer = 0;
-let justLongPressed = false;
+const gestureStates = new WeakMap();
 let vocabRevision = 0;
 let vocabLoad = 0;
 // When all totals were verified (0 = stale or only partially available).
@@ -85,11 +88,36 @@ function bitOn(mask, name) {
   return (mask & (CATEGORY_BITS[name] ?? 0)) !== 0;
 }
 
+function localDay(at = Date.now()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date(at));
+}
+
+function highlightMasks() {
+  const day = localDay();
+  const masks = new Map(vocab);
+  if (vocabDate && vocabDate !== day) for (const [word, mask] of masks) masks.set(word, mask & ~CATEGORY_BITS.today);
+  if (todayVocabularyDate !== day || !todayVocabulary.size) return masks;
+  const mark = word => masks.set(word, (masks.get(word) || 0) | CATEGORY_BITS.today);
+  todayVocabulary.forEach(mark);
+  for (const forms of vocabFamilies) if (todayVocabulary.has(forms[0])) forms.forEach(mark);
+  return masks;
+}
+
+/** The learning API already supplies today's NEW + REVIEW words; the extension feed may lag it. */
+export function setTodayVocabulary(words, date) {
+  todayVocabularyDate = date || '';
+  todayVocabulary = new Set((Array.isArray(words) ? words : [])
+    .map(item => vocabularyKey(typeof item === 'string' ? item : item?.word)).filter(Boolean));
+  applyHighlights();
+  publishVocab();
+}
+
 function applyHighlights() {
   if (!articleRoot) return;
+  const masks = highlightMasks();
   for (const word of articleRoot.querySelectorAll('.w')) {
     word.classList.remove('hl-today', 'hl-wordbook');
-    const mask = vocab.get(word.dataset.w.toLowerCase());
+    const mask = vocabularyMask(word.dataset.w, masks);
     if (!mask) {
       word.classList.remove('is-known');
       continue;
@@ -102,6 +130,8 @@ function applyHighlights() {
 
 export function decorate(root) {
   if (!root) return;
+  resetGestures(root);
+  closePopover();
   articleRoot = root;
   for (const paragraph of root.querySelectorAll('.para p')) {
     const source = paragraph.dataset.src ?? paragraph.textContent;
@@ -119,18 +149,25 @@ function readVocabCache() {
     const raw = localStorage.getItem(VOCAB_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    const entries = validateVocabularyCache(parsed, { ttlMs: VOCAB_TTL_MS });
+    let entries = validateVocabularyCache(parsed, { ttlMs: VOCAB_TTL_MS });
+    // A late-night cache can still be fresh by age but its today bit belongs to yesterday.
+    if (entries && localDay(parsed.at) !== localDay()) entries = entries
+      .map(([word, mask]) => [word, mask & ~CATEGORY_BITS.today]);
+    const families = Array.isArray(parsed.families) && parsed.families.every(forms => Array.isArray(forms)
+      && forms.every(word => typeof word === 'string' && word.trim()))
+      ? parsed.families.map(forms => forms.map(vocabularyKey)) : [];
     const savedCounts = parsed?.countsVersion === COUNTS_VERSION ? validateVocabularyCounts(parsed.counts) : null;
     const verifiedAt = savedCounts && Number.isFinite(parsed.countsAt)
       && parsed.countsAt > 0 && parsed.countsAt <= Date.now() ? parsed.countsAt : 0;
     // Totals remain a useful offline fallback even after the highlight feed expires.
     if (!entries && !savedCounts) return null;
-    return { entries, counts: savedCounts, countsAt: verifiedAt };
+    return { entries, families, date: Number.isFinite(parsed.at) ? localDay(parsed.at) : '',
+      counts: savedCounts, countsAt: verifiedAt };
   } catch { return null; }
 }
 
 function writeVocabCache(entries) {
-  try { localStorage.setItem(VOCAB_KEY, JSON.stringify({ at: Date.now(), entries, counts, countsAt, countsVersion: COUNTS_VERSION })); } catch {}
+  try { localStorage.setItem(VOCAB_KEY, JSON.stringify({ at: Date.now(), entries, families: vocabFamilies, counts, countsAt, countsVersion: COUNTS_VERSION })); } catch {}
 }
 
 function saveVocabCounts({ invalidateFeed = false } = {}) {
@@ -167,7 +204,7 @@ export function vocabCounts() {
 export function articleLegendCounts(root) {
   const words = [...(root || articleRoot || document).querySelectorAll('.w')]
     .map((el) => el.dataset.w);
-  return countArticleCategories(words, vocab);
+  return countArticleCategories(words, highlightMasks());
 }
 
 /** Keep the last totals visible while the confirmed edit triggers a fresh count. */
@@ -177,7 +214,7 @@ export function patchWordbook(word, inBook, variants = []) {
   const bit = CATEGORY_BITS.wordbook;
   const at = Date.now();
   for (const form of [word, ...variants]) {
-    const key = String(form).toLowerCase();
+    const key = vocabularyKey(form);
     wordbookOverrides.set(key, { inBook, at });
     const mask = vocab.get(key) || 0;
     const next = inBook ? (mask | bit) : (mask & ~bit);
@@ -257,6 +294,8 @@ export async function loadHighlightVocab({ force = false } = {}) {
   }
   if (!force && cached?.entries) {
     vocab = new Map(cached.entries);
+    vocabFamilies = cached.families;
+    vocabDate = cached.date;
     applyWordbookOverrides(vocab);
     applyHighlights();
     publishVocab();
@@ -270,12 +309,24 @@ export async function loadHighlightVocab({ force = false } = {}) {
     const result = await fetchVocabularyWithCounts((page) =>
       call(`/bay-translate/user_vocabs?categories=${categories}&page=${page}&ipp=1000`));
     if (load !== vocabLoad || revision !== vocabRevision) return vocab.size;
-    vocab = new Map(result.entries);
+    // Retain the last complete category when Shanbay explicitly says that category is missing.
+    const missing = (CATEGORY_BITS.today | CATEGORY_BITS.wordbook) & ~result.coveredCategories;
+    const next = new Map(result.entries);
+    if (missing) for (const [word, mask] of highlightMasks()) {
+      if (mask & missing) next.set(word, (next.get(word) || 0) | (mask & missing));
+    }
+    if (result.syncDate && result.syncDate !== localDay()) {
+      for (const [word, mask] of next) next.set(word, mask & ~CATEGORY_BITS.today);
+    }
+    vocab = next;
+    vocabFamilies = result.families;
+    vocabDate = result.syncDate || localDay();
     applyWordbookOverrides(vocab);
-    // Highlight membership never supplies dashboard totals.
-    writeVocabCache([...vocab.entries()]);
+    // Incomplete coverage must not renew a six-hour cache as if every category was read.
+    if (!missing && !result.degraded) writeVocabCache([...vocab.entries()]);
     applyHighlights();
     publishVocab();
+    if (missing || result.degraded) throw new Error('扇贝高亮词表不完整，已保留已有标记，请稍后刷新');
     return vocab.size;
   })().finally(() => { if (vocabRequest === request) vocabRequest = null; });
   vocabRequest = request;
@@ -324,7 +375,7 @@ function wordHeader(word, data) {
   const renderStatus = (membership = null) => {
     meta.replaceChildren();
     if (ipa) meta.append(line(`/${ipa.replace(/^\/|\/$/g, '')}/`, 'pop-ipa'));
-    const mask = vocab.get(word.toLowerCase()) || 0;
+    const mask = vocabularyMask(word, highlightMasks());
     if (membership === true) meta.append(line('生词本', 'pop-status is-wb'));
     if (bitOn(mask, 'today')) meta.append(line('今日学习', 'pop-status is-today'));
   };
@@ -347,11 +398,13 @@ function wordbookButton(button, exists) {
 
 async function wordCard(wordEl) {
   const word = wordEl.dataset.w;
-  const pop = openPopover({ anchor: wordEl, kind: 'word', label: word });
+  let closed = false;
+  const pop = openPopover({ anchor: wordEl, kind: 'word', label: word, onClose: () => { closed = true; } });
   if (!pop) return;
   pop.setBody(skeleton());
   try {
     const data = await call(`/abc/words/senses?vocabulary_content=${encodeURIComponent(word)}`);
+    if (closed) return;
     const definitions = (data.definitions?.cn || []).slice(0, 6);
     const vocabId = String(data.id || '');
 
@@ -402,6 +455,7 @@ async function wordCard(wordEl) {
     const feedback = line('', 'pop-feedback');
     feedback.setAttribute('aria-live', 'polite');
     const checkMembership = async () => {
+      if (closed) return;
       action.disabled = true;
       action.textContent = '正在核对生词本…';
       feedback.textContent = '';
@@ -410,8 +464,8 @@ async function wordCard(wordEl) {
         exists = wordbookMembership(check, vocabId);
         renderStatus(exists);
         wordbookButton(action, exists);
-        if (bitOn(vocab.get(word.toLowerCase()) || 0, 'wordbook') !== exists) {
-          patchWordbook(word, exists);
+        if (bitOn(vocabularyMask(word, vocab), 'wordbook') !== exists) {
+          patchWordbook(word, exists, [data.content].filter(Boolean));
           void loadHighlightVocab({ force: true }).catch(() => {});
         }
       } catch (error) {
@@ -424,6 +478,7 @@ async function wordCard(wordEl) {
       }
     };
     action.onclick = async () => {
+      if (closed || action.disabled) return;
       if (exists === null) { await checkMembership(); return; }
       action.disabled = true;
       action.textContent = exists ? '正在移出…' : '正在加入…';
@@ -432,7 +487,7 @@ async function wordCard(wordEl) {
         if (exists) await call('/wordscollection/words', 'DELETE', { vocab_ids: [vocabId] });
         else await call('/wordscollection/words', 'POST', { vocab_id: vocabId, business_id: BUSINESS_ID });
         exists = !exists;
-        patchWordbook(word, exists);
+        patchWordbook(word, exists, [data.content].filter(Boolean));
         renderStatus(exists);
         wordbookButton(action, exists);
         void loadHighlightVocab({ force: true }).catch(() => {
@@ -452,6 +507,7 @@ async function wordCard(wordEl) {
     pop.setBody(body);
     await checkMembership();
   } catch (error) {
+    if (closed) return;
     const body = document.createElement('div');
     body.append(wordHeader(word, null).row, line(error?.code === 'NOT_FOUND'
       ? '词典里没有这个词，可能是专有名词或变形。'
@@ -519,7 +575,10 @@ export function sentenceCard(sentEl) {
     },
     onClose: () => {
       closed = true;
-      for (const job of Object.values(jobs)) job.controller?.abort();
+      for (const job of Object.values(jobs)) {
+        clearTimeout(job.slowTimer);
+        job.controller?.abort();
+      }
     },
   });
   if (!pop) return null;
@@ -530,10 +589,22 @@ export function sentenceCard(sentEl) {
     if (closed) return;
     const job = jobs[id];
     if (job.node) { pop.setBody(job.node); return; }
-    pop.setBody(skeleton({ head: false, button: false }));
+    if (!job.loading) {
+      job.loading = skeleton({ head: false, button: false });
+      job.status = line(id === 'analysis' ? '正在分析句子…' : '正在翻译句子…', 'pop-request-status');
+      job.status.setAttribute('role', 'status');
+      job.loading.prepend(job.status);
+      job.loading.append(line('点卡片外可收起并取消等待', 'pop-request-hint'));
+    }
+    pop.setBody(job.loading);
     if (closed) return;
     if (!job.pending) {
       job.controller = new AbortController();
+      job.slowTimer = setTimeout(() => {
+        if (closed || job.node) return;
+        job.status.textContent = '仍在等待结果，可收起后重试';
+        if (active === id) pop.setBody(job.loading);
+      }, 8000);
       job.pending = run(id, job);
     }
   }
@@ -554,18 +625,24 @@ export function sentenceCard(sentEl) {
         node.append(line(answer.translation, 'pop-translation'));
       }
     } catch (error) {
-      if (closed || error?.code === 'CANCELLED') return;
+      if (closed) return;
       node = document.createElement('div');
+      node.setAttribute('role', 'status');
       if (error?.code === 'NO_BRIDGE') {
         node.append(line('请更新 App 后使用句子分析和翻译。', 'pop-muted'));
       } else {
-        node.append(line((id === 'analysis' ? '分析失败：' : '翻译失败：') + error.message, 'pop-muted'));
+        node.append(line((id === 'analysis' ? '分析失败：' : '翻译失败：')
+          + (error?.code === 'CANCELLED' ? '请求已中断，请重试' : error?.message || '暂时无法取得结果，请重试'), 'pop-muted'));
       }
+      const resetAt = error?.quotaResetAt || error?.data?.quotaResetAt;
+      if (resetAt) node.append(line('额度恢复时间：' + resetAt, 'pop-request-hint'));
+      node.append(line('可在卡片内重试，或点卡片外收起后重新长按', 'pop-request-hint'));
       if (error?.code === 'FALLBACK_UNAVAILABLE' || error?.code === 'NO_KEY' || error?.message === '还没有配置翻译密钥') {
         const go = document.createElement('button');
         go.className = 'pop-link';
         go.textContent = '去设置';
         go.onclick = () => {
+          if (closed) return;
           closePopover();
           window.top?.hwfeeShowTab?.('settings');
         };
@@ -574,8 +651,16 @@ export function sentenceCard(sentEl) {
       const retry = document.createElement('button');
       retry.className = 'pop-btn';
       retry.textContent = id === 'analysis' ? '重试分析' : '重试翻译';
-      retry.onclick = () => { job.node = null; job.pending = null; show(id); };
+      retry.onclick = () => {
+        if (closed || job.pending) return;
+        job.node = null;
+        job.loading = null;
+        show(id);
+      };
       node.append(retry);
+    } finally {
+      clearTimeout(job.slowTimer);
+      job.pending = null;
     }
     job.node = node;
     if (!closed && active === id) pop.setBody(node);
@@ -584,64 +669,92 @@ export function sentenceCard(sentEl) {
 
 // --------------------------------------------------------------------- gestures
 
+/** Article replacement, back and tab switches must also cancel a not-yet-open long press. */
+export function resetGestures(root = articleRoot) {
+  gestureStates.get(root)?.reset();
+}
+
 export function initGestures(root) {
-  if (!root || root.dataset.gestures === '1') return;
+  if (!root || gestureStates.has(root)) return;
   root.dataset.gestures = '1';
   articleRoot = root;
 
-  let pointerId = null;
-  let startX = 0;
-  let startY = 0;
-
-  const cancelPress = (event) => {
-    if (event && pointerId !== null && event.pointerId !== pointerId) return;
-    if (pressTimer) clearTimeout(pressTimer);
-    pressTimer = 0;
-    pointerId = null;
-  };
+  let press = null;
+  let suppressClick = false;
+  let suppressUntil = 0;
+  const suppressReleaseClick = () => { suppressClick = true; suppressUntil = Date.now() + 1200; };
+  const stopPress = () => { clearTimeout(press?.timer); press = null; };
+  const reset = () => { stopPress(); suppressClick = false; suppressUntil = 0; };
+  gestureStates.set(root, { reset });
+  const matches = (event) => press && (event.pointerId == null || event.pointerId === press.pointerId);
+  const cancel = () => { if (press) suppressReleaseClick(); stopPress(); };
 
   root.addEventListener('pointerdown', (event) => {
-    if (event.isPrimary === false) { cancelPress(); return; }
+    const dismissed = consumeDismissedWordTap(event.target, event);
+    if (event.isPrimary === false) { cancel(); suppressReleaseClick(); return; }
     if (event.button !== 0) return;
+    stopPress();
+    suppressClick = false;
+    if (dismissed) suppressReleaseClick();
     const sentence = nearestSentence(root, event.target, event.clientX, event.clientY);
     if (!sentence) return;
-    justLongPressed = false;
-    cancelPress();
-    pointerId = event.pointerId;
-    startX = event.clientX;
-    startY = event.clientY;
-    pressTimer = setTimeout(() => {
-      pressTimer = 0;
-      justLongPressed = true;
+    const held = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, timer: 0 };
+    press = held;
+    held.timer = setTimeout(() => {
+      if (press !== held) return;
+      held.timer = 0;
+      suppressReleaseClick();
+      if (!sentence.isConnected || root.closest('[hidden]') || document.hidden) { stopPress(); return; }
       sentenceCard(sentence);
     }, LONG_PRESS_MS);
   });
 
-  root.addEventListener('pointerup', cancelPress);
-  root.addEventListener('pointercancel', cancelPress);
-  root.addEventListener('pointermove', (event) => {
-    if (pointerId !== null && event.pointerId === pointerId
-        && Math.hypot(event.clientX - startX, event.clientY - startY) > PRESS_SLOP) cancelPress(event);
-  });
-  root.addEventListener('pointerleave', cancelPress);
-  window.addEventListener('scroll', () => cancelPress(), { passive: true });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPress(); });
+  // A release can land outside the article. Multi-touch outside the article must cancel too.
+  document.addEventListener('pointerdown', (event) => {
+    if (event.isPrimary === false || !root.contains(event.target)) cancel();
+  }, true);
+  document.addEventListener('pointerup', (event) => {
+    if (!matches(event)) return;
+    // Some WebViews omit the release-click. Never let that omission swallow a later activation.
+    if (suppressClick) suppressReleaseClick();
+    stopPress();
+  }, true);
+  document.addEventListener('pointercancel', (event) => { if (matches(event)) cancel(); }, true);
+  document.addEventListener('pointermove', (event) => {
+    if (matches(event) && Math.hypot(event.clientX - press.x, event.clientY - press.y) > PRESS_SLOP) cancel();
+  }, true);
+  root.addEventListener('pointerleave', (event) => { if (matches(event)) cancel(); });
+  window.addEventListener('scroll', cancel, { capture: true, passive: true });
+  window.addEventListener('resize', cancel);
+  window.addEventListener('blur', reset);
+  window.addEventListener('pagehide', reset);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) reset(); });
+  try {
+    if (window.top !== window) window.top.document.addEventListener('pointerdown', cancel, true);
+  } catch { /* Cross-origin standalone embedding. */ }
   root.addEventListener('contextmenu', (event) => {
     if (event.target.closest?.('.sent')) event.preventDefault();
   });
 
+  // Registered before a card's outside-click listener: releasing a long press must not
+  // immediately dismiss its newly opened card or turn into an accidental dictionary lookup.
+  document.addEventListener('click', (event) => {
+    if (!root.contains(event.target) || !suppressClick) return;
+    suppressClick = false;
+    if (Date.now() >= suppressUntil) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
   root.addEventListener('click', (event) => {
-    const dismissed = consumeDismissedWordTap(event.target);
-    if (justLongPressed) { justLongPressed = false; return; }
-    if (dismissed) { event.preventDefault(); return; }
+    if (consumeDismissedWordTap(event.target, event)) { event.preventDefault(); return; }
     const word = event.target.closest?.('.w');
     if (!word) return;
     event.preventDefault();
-    wordCard(word);
+    void wordCard(word);
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closePopover();
+    if (event.key === 'Escape') { reset(); closePopover(); }
   });
 }
 

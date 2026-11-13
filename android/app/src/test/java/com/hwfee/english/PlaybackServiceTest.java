@@ -36,8 +36,18 @@ public class PlaybackServiceTest {
         service = controller.get();
     }
 
-    @After public void destroyService() {
+    @After public void destroyService() throws Exception {
         controller.destroy();
+        drainNative();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    private NativeAudioEngine engine() { return ReflectionHelpers.getField(service, "nativeEngine"); }
+
+    private void drainNative() throws Exception {
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        engine().execute(done::countDown);
+        assertTrue(done.await(3, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     private int send(String action) {
@@ -89,6 +99,36 @@ public class PlaybackServiceTest {
         send(PlaybackService.ACTION_SLEEP);
         assertFalse(lock.isHeld());
         assertNull(shadowOf(service).getLastForegroundNotification().extras.getString("android.subText"));
+    }
+
+    @Test public void sleepExpiryClearsContinuousModeAndAnOldTaskCannotExpireAReplacement() throws Exception {
+        send(PlaybackService.ACTION_START);
+        service.onStartCommand(new Intent(service, PlaybackService.class).setAction(PlaybackService.ACTION_SLEEP)
+                .putExtra("seconds", 9), 0, 2);
+        drainNative();
+        Runnable old = ReflectionHelpers.getField(service, "sleepTask");
+        service.onStartCommand(new Intent(service, PlaybackService.class).setAction(PlaybackService.ACTION_SLEEP)
+                .putExtra("seconds", 30), 0, 3);
+        drainNative();
+        old.run(); drainNative();
+        assertEquals(30, engine().snapshot().optInt("sleepSeconds"));
+        assertNotNull(ReflectionHelpers.getField(service, "sleepTask"));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30)); drainNative();
+        assertEquals(0, engine().snapshot().optInt("sleepSeconds"));
+        assertNull(ReflectionHelpers.getField(service, "sleepTask"));
+        assertFalse(ShadowPowerManager.getLatestWakeLock().isHeld());
+    }
+
+    @Test public void manualPauseDoesNotCancelTheWallClockDeadline() throws Exception {
+        send(PlaybackService.ACTION_START);
+        service.onStartCommand(new Intent(service, PlaybackService.class).setAction(PlaybackService.ACTION_SLEEP)
+                .putExtra("seconds", 9), 0, 2);
+        drainNative();
+        send(PlaybackService.ACTION_PAUSE); drainNative();
+        assertEquals(9, engine().snapshot().optInt("sleepSeconds"));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(9)); drainNative();
+        assertEquals(0, engine().snapshot().optInt("sleepSeconds"));
+        assertFalse(ShadowPowerManager.getLatestWakeLock().isHeld());
     }
 
     @Test @Config(sdk = 23) public void playbackSupportsDevicesBeforeNotificationChannels() {

@@ -1,6 +1,7 @@
 package com.hwfee.english;
 
 import android.content.Intent;
+import android.content.ContentResolver;
 import android.net.Uri;
 import android.os.Bundle;
 
@@ -8,20 +9,20 @@ import com.getcapacitor.BridgeActivity;
 import com.hwfee.english.glass.GlassHost;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.content.IntentCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.splashscreen.SplashScreen;
 
 import android.content.res.Configuration;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends BridgeActivity {
 
     /** A zip handed over by another app, waiting for the web layer to pick it up. */
-    private static Uri pendingShare;
+    private static final AtomicReference<Uri> pendingShare = new AtomicReference<>();
 
     public static Uri takePendingShare() {
-        Uri uri = pendingShare;
-        pendingShare = null;
-        return uri;
+        return pendingShare.getAndSet(null);
     }
 
     @Override
@@ -105,18 +106,22 @@ public class MainActivity extends BridgeActivity {
     }
 
     /** Share sheet or "open with": the file arrives as a granted content URI. */
-    private void handleIntent(Intent intent) {
+    void handleIntent(Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
         Uri uri = null;
         if (Intent.ACTION_VIEW.equals(action)) {
             uri = intent.getData();
         } else if (Intent.ACTION_SEND.equals(action)) {
-            uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri.class);
         }
-        if (uri == null) return;
+        // Exported activities can receive explicit intents that bypass manifest filters.
+        // Only a provider-backed URI may cross this boundary; file: would read with
+        // our own private-storage permissions. Debug importPath remains separate.
+        if (uri == null || !ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
+                || uri.getAuthority() == null || uri.getAuthority().isEmpty()) return;
 
-        pendingShare = uri;
+        pendingShare.set(uri);
         if (bridge != null && bridge.getWebView() != null) {
             bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(
                     "window.dispatchEvent(new CustomEvent('hwfee:shared'))", null));

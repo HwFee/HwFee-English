@@ -19,10 +19,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /** One native decoder, owned independently of WebView documents and their visibility. */
 final class NativeAudioEngine {
     interface Listener { void onState(JSObject state); }
+    interface ClipFactory { File create(File cache, File source, long start, long end) throws Exception; }
+    interface DecoderFactory { MediaPlayer create(); }
     private static NativeAudioEngine instance;
     static synchronized NativeAudioEngine get(Context context) {
         if (instance == null) instance = new NativeAudioEngine(context.getApplicationContext());
@@ -32,6 +37,15 @@ final class NativeAudioEngine {
     private final Handler handler;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AudioManager audioManager;
+    private final ExecutorService clipWorker = Executors.newSingleThreadExecutor();
+    private ClipFactory clipFactory = SentenceClip::create;
+    private DecoderFactory decoderFactory = MediaPlayer::new;
+    private Future<?> clipTask;
+    private long decoderGeneration;
+    private File sourceFile;
+    private volatile boolean bounded;
+    private volatile long decoderStart, decoderEnd;
+    private volatile long clipDecodeMillis;
     private final AudioAttributes attributes = new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
     private MediaPlayer player;
@@ -49,6 +63,10 @@ final class NativeAudioEngine {
     private volatile long boundaryPosition = -1, boundaryOvershoot;
     private long rangeStart, rangeEnd;
     private boolean loop, drill;
+    private volatile boolean continuousLesson;
+    private volatile int sleepSeconds;
+    private final java.util.concurrent.atomic.AtomicInteger requestedSleep = new java.util.concurrent.atomic.AtomicInteger();
+    private boolean continuousSleep() { return sleepSeconds > 0 && continuousLesson; }
     private volatile float rate = 1f;
     private float decoderRate = 1f;
     private final Runnable ticker = new Runnable() {
@@ -56,7 +74,7 @@ final class NativeAudioEngine {
             if (!prepared || player == null) return;
             try {
                 if (!seeking) position = playbackPosition();
-                if (!seeking && playing() && rangeEnd > rangeStart && position >= rangeEnd - 10) {
+                if (!continuousSleep() && !bounded && !seeking && playing() && rangeEnd > rangeStart && position >= rangeEnd - 10) {
                     boundaryPosition = position;
                     boundaryOvershoot = Math.max(0, position - rangeEnd);
                     if (loop) { seek(rangeStart / 1000.0); }
@@ -69,7 +87,7 @@ final class NativeAudioEngine {
                 if (now - lastPageUpdate >= 200) { lastPageUpdate = now; emit(""); }
                 if (playing() || seeking) {
                     long delay = 25;
-                    if (!seeking && rangeEnd > rangeStart) {
+                    if (!continuousSleep() && !bounded && !seeking && rangeEnd > rangeStart) {
                         // Poll more closely at the boundary, including faster playback.
                         // A fixed 25 ms tick could already be inside the next word.
                         delay = Math.max(1, Math.min(25, (long) Math.ceil((rangeEnd - position) / (double) rate) - 10));
@@ -117,8 +135,9 @@ final class NativeAudioEngine {
         return running;
     }
     private long playbackPosition() {
-        long coarse = player.getCurrentPosition();
-        if (!drill || !running || seeking) return coarse;
+        long coarse = decoderStart + player.getCurrentPosition();
+        if (bounded) return Math.min(decoderEnd, coarse);
+        if (continuousSleep() || !drill || !running || seeking) return coarse;
         try { return SentenceClock.position(coarse, player.getTimestamp(), System.nanoTime()); }
         catch (IllegalStateException | UnsupportedOperationException unavailable) { return coarse; }
     }
@@ -131,6 +150,9 @@ final class NativeAudioEngine {
                 .put("prepared", prepared).put("seeking", seeking).put("ended", ended)
                 .put("position", position / 1000.0).put("duration", duration / 1000.0)
                 .put("boundaryPosition", boundaryPosition / 1000.0).put("boundaryOvershootMs", boundaryOvershoot)
+                .put("bounded", bounded).put("clipStart", decoderStart / 1000.0).put("clipEnd", decoderEnd / 1000.0)
+                .put("clipDecodeMs", clipDecodeMillis)
+                .put("sleepSeconds", sleepSeconds).put("sleepContinuous", continuousSleep())
                 .put("rate", rate).put("error", error).put("sequence", sequence).put("reused", reusedSource);
     }
     private void emit(String event) {
@@ -148,6 +170,7 @@ final class NativeAudioEngine {
         if (next.equals(source) && prepared && error.isEmpty()) {
             if (data.optBoolean("restoreCheckpoint", false)) pauseInternal();
             reusedSource = true; metadata(data);
+            if (sleepSeconds > 0 && (wanted || running)) ensureRangeDecoder();
             emit("");
             call.resolve(snapshot().put("reused", true)); return;
         }
@@ -157,6 +180,8 @@ final class NativeAudioEngine {
         position = 0; duration = 0; wanted = false; ended = false; atBoundary = false; error = "";
         rate = 1f;
         rangeEnd = 0; rangeStart = 0;
+        sourceFile = null; bounded = false; decoderStart = 0; decoderEnd = 0;
+        clipDecodeMillis = 0;
         drill = false;
         boundaryPosition = -1; boundaryOvershoot = 0;
         preparing = call;
@@ -165,6 +190,8 @@ final class NativeAudioEngine {
     }
     private void metadata(JSObject data) {
         sourceId = data.optString("sourceId", "");
+        // Only whole-lesson players opt in. Saved/review clips must retain their exact bounds.
+        continuousLesson = data.optBoolean("continuousLesson", false);
         lesson = data.optString("lesson", ""); title = data.optString("title", "精听");
         artist = data.optString("artist", ""); artwork = data.optString("artwork", "");
     }
@@ -191,29 +218,44 @@ final class NativeAudioEngine {
     }
     private void prepareDecoder() {
         try {
-            final MediaPlayer decoder = new MediaPlayer();
+            bounded = false; decoderStart = 0; decoderEnd = 0;
+            sourceFile = audioFile();
+            openDecoder(sourceFile);
+        } catch (Exception failure) { fail(String.valueOf(failure.getMessage())); }
+    }
+    private void openDecoder(File file) {
+        try {
+            final MediaPlayer decoder = decoderFactory.create();
             decoderRate = 1f;
             player = decoder;
             decoder.setAudioAttributes(attributes);
             decoder.setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK);
-            decoder.setDataSource(audioFile().getAbsolutePath());
+            decoder.setDataSource(file.getAbsolutePath());
+            decoder.setLooping(bounded && loop);
             decoder.setOnPreparedListener(ready -> {
                 if (player != ready) return;
-                prepared = true; duration = ready.getDuration();
-                if (position > 0) seek(position / 1000.0);
+                prepared = true; seeking = false;
+                if (!bounded) duration = ready.getDuration();
+                position = bounded ? Math.max(decoderStart, Math.min(decoderEnd, position)) : Math.min(duration, position);
+                if (position > decoderStart) seek(position / 1000.0);
                 JSObject state = snapshot();
                 if (preparing != null) { preparing.resolve(state); preparing = null; }
                 emit("prepared");
-                if (wanted && !seeking) startPrepared();
+                if (wanted && !seeking && ensureRangeDecoder()) startPrepared();
             });
             decoder.setOnSeekCompleteListener(ready -> {
                 if (player != ready) return;
-                seeking = false; position = ready.getCurrentPosition();
+                seeking = false; position = decoderStart + ready.getCurrentPosition();
                 emit("seeked");
-                if (wanted && !playing()) startPrepared();
+                if (wanted && !playing() && ensureRangeDecoder()) startPrepared();
             });
             decoder.setOnCompletionListener(ready -> {
                 if (player != ready) return;
+                if (bounded) {
+                    wanted = false; running = false; ended = false; atBoundary = true;
+                    position = decoderEnd; boundaryPosition = position; boundaryOvershoot = 0;
+                    handler.removeCallbacks(ticker); emit("boundary"); return;
+                }
                 wanted = false; running = false; ended = true; position = duration;
                 handler.removeCallbacks(ticker); emit("ended");
             });
@@ -223,6 +265,38 @@ final class NativeAudioEngine {
             });
             decoder.prepareAsync();
         } catch (Exception failure) { fail(String.valueOf(failure.getMessage())); }
+    }
+    /** Returns false while a new bounded/full source is being prepared. */
+    private boolean ensureRangeDecoder() {
+        boolean nextBounded = !continuousSleep() && (drill || loop) && rangeEnd > rangeStart;
+        long start = nextBounded ? rangeStart : 0, end = nextBounded ? rangeEnd : 0;
+        if (bounded == nextBounded && decoderStart == start && decoderEnd == end) return prepared;
+        releaseDecoder();
+        bounded = nextBounded; decoderStart = start; decoderEnd = end;
+        clipDecodeMillis = 0;
+        if (bounded && (position < start || position >= end)) position = start;
+        long request = decoderGeneration;
+        seeking = true;
+        emit("loading");
+        if (!nextBounded) {
+            if (sourceFile == null) prepareDecoder(); else openDecoder(sourceFile);
+        } else {
+            File original = sourceFile;
+            clipTask = clipWorker.submit(() -> {
+                try {
+                    if (original == null) throw new IllegalStateException("课程音频尚未准备好");
+                    long started = android.os.SystemClock.elapsedRealtime();
+                    File clip = clipFactory.create(context.getCacheDir(), original, start, end);
+                    long elapsed = android.os.SystemClock.elapsedRealtime() - started;
+                    execute(() -> { if (decoderGeneration == request) {
+                        clipTask = null; clipDecodeMillis = elapsed; openDecoder(clip);
+                    } });
+                } catch (Exception failure) {
+                    execute(() -> { if (decoderGeneration == request) fail("无法准备句子音频：" + failure.getMessage()); });
+                }
+            });
+        }
+        return false;
     }
     private boolean requestFocus() {
         if (Build.VERSION.SDK_INT >= 26) {
@@ -242,7 +316,7 @@ final class NativeAudioEngine {
         if (running) { emit(""); return; }
         wanted = true; ended = false; resumeOnFocus = false;
         if (!error.isEmpty()) { error = ""; releaseDecoder(); wanted = true; prepareDecoder(); return; }
-        if (prepared && !seeking) startPrepared();
+        if (ensureRangeDecoder() && !seeking) startPrepared();
     }
     private void startPrepared() {
         if (!requestFocus()) { wanted = false; emit(""); return; }
@@ -255,6 +329,42 @@ final class NativeAudioEngine {
             emit(""); handler.removeCallbacks(ticker); handler.post(ticker);
         } catch (Exception failure) { fail(String.valueOf(failure.getMessage())); }
     }
+    /** Choosing a positive timer starts continuous listening once; later manual pauses still win. */
+    void setSleep(int seconds) {
+        int selected = Math.max(0, seconds);
+        boolean starting = requestedSleep.getAndSet(selected) == 0 && selected > 0;
+        long request = starting ? reserveTransport() : transport.get();
+        execute(() -> {
+            if (prepared && player != null && !seeking && !atBoundary) position = playbackPosition();
+            boolean wasContinuous = continuousSleep();
+            sleepSeconds = selected;
+            if (wasContinuous && !continuousSleep()) {
+                // The page restores its practice checkpoint and sends a fresh range.
+                // Never apply the stale pre-sleep sentence to the whole-lesson position.
+                rangeStart = 0; rangeEnd = 0; loop = false; drill = false;
+            }
+            if (sleepSeconds > 0) atBoundary = false;
+            if (wanted || running) ensureRangeDecoder();
+            emit("sleep");
+            if (starting && requestedSleep.get() > 0 && request == transport.get()) playInternal();
+        });
+    }
+
+    /** Expiry is one-shot and cancels pending auto-starts, but cannot override a newer user Play. */
+    void finishSleep() {
+        if (requestedSleep.getAndSet(0) <= 0) return;
+        long request = reserveTransport();
+        execute(() -> {
+            // A replacement timer owns the mode now; an old expiry cannot clear it.
+            if (requestedSleep.get() != 0) return;
+            if (request == transport.get()) pauseInternal();
+            boolean wasContinuous = continuousSleep();
+            sleepSeconds = 0;
+            if (wasContinuous) { rangeStart = 0; rangeEnd = 0; loop = false; drill = false; }
+            emit("sleep");
+        });
+    }
+
     void pause() {
         pauseRequest(reserveTransport());
     }
@@ -263,7 +373,7 @@ final class NativeAudioEngine {
     }
     private void pauseInternal() {
         wanted = false; resumeOnFocus = false;
-        try { if (playing()) { position = player.getCurrentPosition(); player.pause(); } }
+        try { if (playing()) { position = playbackPosition(); player.pause(); } }
         catch (IllegalStateException failure) { fail("原生音频状态已失效，请重新播放"); return; }
         running = false; handler.removeCallbacks(ticker); emit("");
     }
@@ -271,15 +381,19 @@ final class NativeAudioEngine {
         if (Looper.myLooper() != handler.getLooper()) { execute(() -> seek(seconds)); return; }
         if (Double.isNaN(seconds) || Double.isInfinite(seconds)) return;
         position = Math.max(0, Math.round(seconds * 1000)); ended = false; atBoundary = false;
-        if (!prepared || player == null) return;
+        if (!prepared || player == null) { seeking = true; emit("seeking"); return; }
         position = Math.min(position, duration); seeking = true;
         try {
             // seekTo is asynchronous. Keeping the decoder running here lets the old
             // sentence continue while the ticker deliberately skips boundary checks.
             // Preserve wanted so onSeekComplete can resume only after positioning.
             if (running) { player.pause(); running = false; }
-            if (Build.VERSION.SDK_INT >= 26) player.seekTo(position, MediaPlayer.SEEK_CLOSEST);
-            else player.seekTo((int) Math.min(Integer.MAX_VALUE, position));
+            // A following range command selects the new sentence before it may resume.
+            if (bounded && (position < decoderStart || position >= decoderEnd)) { emit("seeking"); return; }
+            long relative = position - decoderStart;
+            if (Build.VERSION.SDK_INT >= 26) player.seekTo(relative, MediaPlayer.SEEK_CLOSEST);
+            else player.seekTo((int) Math.min(Integer.MAX_VALUE, relative));
+            emit("seeking");
         } catch (IllegalStateException failure) { fail("无法定位到该播放位置"); }
     }
     void rate(double value) {
@@ -298,6 +412,9 @@ final class NativeAudioEngine {
         if (!Double.isFinite(start) || !Double.isFinite(end)) return;
         rangeStart = Math.max(0, Math.round(start * 1000)); rangeEnd = Math.max(0, Math.round(end * 1000)); loop = repeat;
         drill = sentenceDrill;
+        if (wanted || running) {
+            if (ensureRangeDecoder() && player != null) player.setLooping(bounded && loop);
+        }
     }
     private void fail(String message) {
         error = message; wanted = false; prepared = false; seeking = false; running = false;
@@ -307,6 +424,8 @@ final class NativeAudioEngine {
         emit("error"); // A user-initiated retry is allowed; no reload/retry loop runs here.
     }
     private void releaseDecoder() {
+        decoderGeneration++;
+        if (clipTask != null) { clipTask.cancel(true); clipTask = null; }
         handler.removeCallbacks(ticker);
         if (preparing != null) { preparing.reject("课程已切换"); preparing = null; }
         if (player != null) { player.release(); player = null; }

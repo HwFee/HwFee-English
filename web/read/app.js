@@ -1,6 +1,6 @@
 // Read tab: 我的精读 home plus the reader, on the on-device Shanbay bridge.
 import { loadState, hasSession, cachedState, cachedArticles, cachedArticle, backfillArticleCovers } from './bridge.mjs';
-import { decorate, initGestures, loadHighlightVocab, refreshVocabCounts, vocabCounts, articleLegendCounts } from './gestures.mjs';
+import { decorate, initGestures, resetGestures, loadHighlightVocab, setTodayVocabulary, refreshVocabCounts, vocabCounts, articleLegendCounts } from './gestures.mjs';
 import { closePopover, openPopover } from './popover.mjs';
 import { prepareTranslation } from './pretranslation.mjs';
 import { feedback } from './feedback.mjs';
@@ -14,7 +14,7 @@ const el = (tag, text, cls) => {
   if (cls) node.className = cls;
   return node;
 };
-const WORD_RE = /[A-Za-z]+(?:[-’'][A-Za-z]+)*/g;
+const WORD_RE = /[A-Za-z]+(?:[-‐‑’‘ʼ'][A-Za-z]+)*/g;
 const SIZE_KEY = 'cijian-reading-size';
 const MAX_RECENT = 10;
 const LONG_PRESS_MS = 520;
@@ -32,6 +32,10 @@ let pendingRatio = 0;
 let readerNavigation = 0;
 let readerOpening = false;
 let restoring = false;
+let highlightRequest = null;
+let nextHighlightAttempt = 0;
+let highlightDay = '';
+let highlightError = '';
 
 document.documentElement.style.setProperty('--reading', fontSize + 'px');
 
@@ -64,6 +68,7 @@ function showView(name) {
     readerOpening = false;
     restoring = false;
     window.top?.hwfeeReadView?.(false);
+    resetGestures();
     closePopover();
     current = null;
     renderHome();
@@ -170,13 +175,17 @@ function renderHero() {
 
   const status = describe(getProgress(a.date));
   const m = el('div', undefined, 'm');
-  m.append(el('div', a.title, 'tt'));
-  const day = a.date === view.article?.date ? '今天'
+  m.append(el('div', a.date === localDate() ? '今日短文' : '继续精读', 'kk'), el('div', a.title, 'tt'));
+  const day = a.date === localDate() ? '今天'
     : `${Number(a.date.slice(5, 7))}月${Number(a.date.slice(8))}日`;
+  const dayLine = el('div', undefined, 'ss');
+  dayLine.append(day);
+  const hits = Array.isArray(a.matchedTodayWords) ? a.matchedTodayWords.length : 0;
+  if (hits) dayLine.append(' · ', el('span', `命中今日 ${hits} 词`, 'hit-words'));
   const ss = el('div', undefined, 'ss');
   ss.append(`${words} 词 · 约 ${Math.ceil(words / 60)} 分钟`);
   if (view.offline) ss.append(' ', el('span', '离线缓存', 'chip'));
-  m.append(el('div', day, 'ss'), ss);
+  m.append(dayLine, ss);
 
   const row = el('div', undefined, 'hrow');
   row.append(coverFor(a), m);
@@ -193,7 +202,7 @@ function renderRecent() {
   $('recentHead').hidden = !list.length;
   const box = $('recentList');
   box.replaceChildren();
-  const today = view.today?.date || localDate();
+  const today = localDate();
   for (const item of list) {
     const row = el('a', undefined, 'rcard');
     row.href = '#a=' + item.date;
@@ -290,7 +299,18 @@ function renderReader(a) {
     el('span', `${a.paragraphs.length} 段`, 'chip'),
     el('span', `约 ${Math.ceil(words / 60)} 分钟`, 'chip'));
   const legend = el('div', undefined, 'legend');
-  header.append(chips, legend);
+  header.append(chips, legend, el('p', '点单词查词 · 长按句子分析 / 翻译 · 点卡片外收起', 'reader-gesture-hint'));
+  const highlightStatus = el('div', undefined, 'reader-highlight-status');
+  const highlightCopy = el('span');
+  highlightCopy.id = 'readerHighlightState';
+  highlightCopy.setAttribute('role', 'status');
+  const retryHighlight = el('button', '刷新高亮', 'reader-highlight-refresh');
+  retryHighlight.id = 'readerHighlightRefresh';
+  retryHighlight.type = 'button';
+  retryHighlight.onclick = () => void syncHighlights({ force: true });
+  highlightStatus.append(highlightCopy, retryHighlight);
+  header.append(highlightStatus);
+  renderHighlightStatus();
 
   const article = $('article');
   article.replaceChildren();
@@ -330,6 +350,7 @@ async function openArticle(article, { push = true } = {}) {
   const saved = getProgress(article.date);
   setReading(article.date);
   renderReader(article);
+  void syncHighlights();
   await window.top?.hwfeeReadView?.(true);
   if (revision !== readerNavigation) return;
   readerOpening = false;
@@ -443,6 +464,35 @@ $('larger').onclick = () => size(1);
 
 // ------------------------------------------------------------------------ data
 
+function renderHighlightStatus() {
+  const status = $('readerHighlightState'), button = $('readerHighlightRefresh');
+  if (!status || !button) return;
+  status.textContent = highlightRequest ? '正在同步词表…' : highlightError
+    ? '词表未同步完整，部分单词可能未高亮' : '今日学习下划线 · 生词本底色';
+  button.disabled = Boolean(highlightRequest);
+}
+
+/** Recheck on entry/resume, not just when the six-hour offline snapshot expires. */
+function syncHighlights({ force = false, notify = true } = {}) {
+  if (!view.connected) return Promise.resolve(false);
+  if (highlightDay !== localDate()) { highlightDay = localDate(); nextHighlightAttempt = 0; }
+  if (highlightRequest) return highlightRequest;
+  if (!force && Date.now() < nextHighlightAttempt) return Promise.resolve(!highlightError);
+  nextHighlightAttempt = Date.now() + 60000;
+  highlightRequest = loadHighlightVocab({ force: true }).then(() => {
+    highlightError = '';
+    return true;
+  }).catch(error => {
+    const changed = highlightError !== error.message;
+    highlightError = error.message;
+    if (notify && changed) feedback('词表同步失败，部分单词可能未高亮', { kind: 'error',
+      detail: error.message + '；可在正文点“刷新高亮”重试' });
+    return false;
+  }).finally(() => { highlightRequest = null; renderHighlightStatus(); });
+  renderHighlightStatus();
+  return highlightRequest;
+}
+
 function applyState(next) {
   view.status = 'ready';
   view.connected = true;
@@ -450,7 +500,8 @@ function applyState(next) {
   view.today = next.today;
   view.article = next.article;
   view.offline = Boolean(next.offline);
-  if (!view.offline) refreshCovers();
+  setTodayVocabulary(next.today?.words, next.today?.date);
+  if (!view.offline) { refreshCovers(); void syncHighlights(); }
   if (view.article?.date === localDate()) void prepareTranslation(view.article);
 }
 
@@ -482,7 +533,7 @@ async function refresh() {
       feedback('未能刷新，显示离线缓存', { kind: 'error', detail: next.offlineReason || '无法连接扇贝，请检查网络后重试' });
     } else {
       try {
-        await loadHighlightVocab({ force: true });
+        if (!await syncHighlights({ force: true, notify: false })) throw new Error(highlightError || '词表暂不可用');
         await refreshVocabCounts({ force: true });
         feedback('今日文章已刷新', { kind: 'success', detail: next.article.title });
       } catch (error) {
@@ -520,6 +571,7 @@ let lastDailyError = '';
 async function prepareDaily({ forceTranslation = false } = {}) {
   if (!initialized || refreshing) return;
   recheckCounts();
+  void syncHighlights();
   if (dailyRequest) return dailyRequest;
   dailyRequest = (async () => {
     if (!view.connected) {
@@ -531,7 +583,7 @@ async function prepareDaily({ forceTranslation = false } = {}) {
         nextDailyAttempt = 0;
       } catch { return; }
     }
-    if (view.article?.date !== localDate() && Date.now() >= nextDailyAttempt) {
+    if ((view.offline || view.article?.date !== localDate()) && Date.now() >= nextDailyAttempt) {
       nextDailyAttempt = Date.now() + 2 * 60000;
       try {
         const next = await loadState();
@@ -605,10 +657,10 @@ async function init() {
 
 // Android back delegates to the shell: close an open popover, then leave the
 // reader for the home view. Anything else is the shell's job.
-window.hwfeeDismissPopover = closePopover;
+window.hwfeeDismissPopover = () => { resetGestures(); closePopover(); };
 window.hwfeeReadBack = () => {
   if (readerOpening) { showView('home'); return true; }
-  if (document.querySelector('.popover')) { closePopover(); return true; }
+  if (document.querySelector('.popover')) { window.hwfeeDismissPopover(); return true; }
   if (!$('readerView').hidden) { history.back(); return true; }
   return false;
 };

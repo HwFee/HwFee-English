@@ -15,13 +15,15 @@ android {
     namespace "com.hwfee.english"
     compileSdk rootProject.ext.compileSdkVersion
     buildFeatures { compose true }
+    // Opt in to exercising the actual R8-optimized APK with instrumentation.
+    testBuildType = project.findProperty('hwfeeTestBuildType') ?: 'debug'
     defaultConfig {
         applicationId "com.hwfee.english"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.0.9"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        versionCode 13
+        versionName "1.0.12"
+        testInstrumentationRunner = project.findProperty('hwfeeTestRunner') ?: 'androidx.test.runner.AndroidJUnitRunner'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -40,8 +42,10 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            testProguardFiles 'test-proguard-rules.pro'
             if (hasKeystore) signingConfig signingConfigs.release
         }
     }
@@ -68,6 +72,9 @@ dependencies {
     implementation 'org.jetbrains.compose.ui:ui-android:1.12.0'
     implementation 'org.jetbrains.compose.runtime:runtime-android:1.12.0'
     implementation 'org.jetbrains.compose.animation:animation-core-android:1.12.0'
+    // Previews live under src/debug, so tooling is absent from the release APK.
+    debugImplementation 'org.jetbrains.compose.ui:ui-tooling-preview-android:1.12.0'
+    debugImplementation 'org.jetbrains.compose.ui:ui-tooling-android:1.12.0'
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"

@@ -129,3 +129,40 @@ test('repeated foreground refresh signals share one native state query', async (
   assert.equal(f.commands.filter(x => x.action === 'state').length, 1);
   f.dom.window.close();
 });
+
+test('bounded playback never extrapolates into the next sentence while waiting for completion', async () => {
+  const f = fixture(); f.audio.src = 'audio/episode.mp4'; await settle();
+  let now = 1000;
+  f.w.performance.now = () => now;
+  f.publish({ playing: true, position: 59.9, bounded: true, clipStart: 30, clipEnd: 60 });
+  now += 1500;
+  assert.equal(f.audio.currentTime, 60);
+  assert.equal(f.audio.hwfeeBoundedPlayback, true);
+  assert.equal(f.audio.paused, false, 'only decoder completion ends a bounded sentence');
+  f.publish({ playing: false, position: 60, event: 'boundary' });
+  assert.equal(f.audio.paused, true);
+  assert.equal(f.ticks, 1);
+  assert.equal(f.commands.some(command => command.action === 'pause'), false);
+  f.dom.window.close();
+});
+
+test('switching sentences keeps the requested time until the native seek is acknowledged', async () => {
+  const f = fixture(); f.audio.src = 'audio/episode.mp4'; await settle();
+  f.publish({ sequence: 1, playing: true, position: 59, bounded: true, clipStart: 30, clipEnd: 60 });
+  const api = f.w.Capacitor.Plugins.Audio, control = api.nativeControl;
+  let acknowledge;
+  api.nativeControl = data => data.action === 'seek'
+    ? new Promise(resolve => { acknowledge = resolve; }) : control(data);
+  f.audio.currentTime = 75;
+  assert.equal(f.audio.currentTime, 75, 'the previous clip end must not clamp a new sentence start');
+  f.publish({ sequence: 2, playing: false, position: 59.1 });
+  assert.equal(f.audio.currentTime, 75, 'an in-flight old position cannot resynchronise the page to the old sentence');
+  acknowledge({ sourceId: f.preparations[0].sourceId, sequence: 3, position: 75, seeking: true });
+  await settle();
+  assert.equal(f.audio.currentTime, 75);
+  f.publish({ sequence: 4, playing: true, position: 75, seeking: false, clipStart: 70, clipEnd: 80 });
+  f.publish({ sequence: 2, playing: false, position: 59.1 });
+  assert.equal(f.audio.paused, false);
+  assert.ok(f.audio.currentTime >= 75 && f.audio.currentTime < 76);
+  f.dom.window.close();
+});

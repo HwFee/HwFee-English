@@ -31,7 +31,7 @@ object GlassState {
     }
 
     fun attach(owner: TabBarPlugin) {
-        waiting.clear()
+        finishWaiting(false)
         plugin = owner
         hidden.value = false
         settledHidden = false
@@ -40,10 +40,32 @@ object GlassState {
         refreshBusy.value = false
     }
 
+    fun detach(owner: TabBarPlugin) {
+        // A destroyed Activity must not detach its replacement's plugin.
+        if (plugin !== owner) return
+        finishWaiting(false)
+        plugin = null
+        hostInstalled = false
+        navInsetPx.floatValue = 0f
+        settledHidden = null
+    }
+
+    private fun finishWaiting(settled: Boolean) {
+        val calls = waiting.toList()
+        waiting.clear()
+        calls.forEach { it.resolve(JSObject().put("settled", settled)) }
+    }
+
+    fun updateNavigationInset(bottom: Int) {
+        val next = bottom.coerceAtLeast(0).toFloat()
+        if (navInsetPx.floatValue == next) return
+        navInsetPx.floatValue = next
+        plugin?.onMetricsChanged()
+    }
+
     fun setHidden(value: Boolean, call: PluginCall) {
         if (hidden.value != value) {
-            waiting.forEach { it.resolve(JSObject().put("settled", false)) }
-            waiting.clear()
+            finishWaiting(false)
             settledHidden = null
         }
         hidden.value = value
@@ -54,16 +76,24 @@ object GlassState {
     fun chromeSettled(value: Boolean) {
         if (hidden.value != value) return
         settledHidden = value
-        waiting.forEach { it.resolve(JSObject().put("settled", true)) }
-        waiting.clear()
+        finishWaiting(true)
     }
 }
 
 @CapacitorPlugin(name = "TabBar")
 class TabBarPlugin : Plugin() {
+    @Volatile private var destroyed = false
 
     override fun load() {
-        activity.runOnUiThread { GlassState.attach(this) }
+        activity.runOnUiThread {
+            if (!destroyed) GlassState.attach(this)
+        }
+    }
+
+    override fun handleOnDestroy() {
+        destroyed = true
+        activity.runOnUiThread { GlassState.detach(this) }
+        super.handleOnDestroy()
     }
 
     fun onAction() {
@@ -82,6 +112,10 @@ class TabBarPlugin : Plugin() {
     @PluginMethod
     fun setState(call: PluginCall) {
         activity.runOnUiThread {
+            if (destroyed || GlassState.plugin !== this) {
+                call.reject("底栏已关闭")
+                return@runOnUiThread
+            }
             val tab = call.getString("tab")
             if (tab != null) GlassState.selected.intValue = GlassState.tabs.indexOf(tab).coerceAtLeast(0)
             call.getBoolean("importBusy")?.let { GlassState.importBusy.value = it }
@@ -117,17 +151,24 @@ class TabBarPlugin : Plugin() {
 
     @PluginMethod
     fun getMetrics(call: PluginCall) {
+        activity.runOnUiThread { call.resolve(metrics()) }
+    }
+
+    fun onMetricsChanged() {
+        if (!destroyed && GlassState.plugin === this) notifyListeners("metricsChanged", metrics())
+    }
+
+    private fun metrics(): JSObject {
         val density = context.resources.displayMetrics.density
         // CSS px from the viewport bottom to 8dp above the bar's top edge:
         // real nav inset (px) + 8dp bottom offset + bar 64dp + 8dp clearance.
-        val navInset = if (GlassState.navInsetPx.floatValue > 0f)
-            GlassState.navInsetPx.floatValue
-        else context.resources.getDimensionPixelSize(
-            context.resources.getIdentifier("navigation_bar_height", "dimen", "android")).toFloat()
-        call.resolve(JSObject().put("available", GlassState.hostInstalled)
+        // Zero is valid (for example in landscape). Real insets arrive through
+        // GlassHost's listener and are republished whenever navigation changes.
+        val navInset = GlassState.navInsetPx.floatValue
+        return JSObject().put("available", GlassState.hostInstalled)
             .put("reserve", (navInset + (8f + 64f + 8f) * density) / density)
             // The raw gesture-bar inset in CSS px: pages that draw their own bottom bar
             // (the lesson player's dock) clear it without guessing.
-            .put("navInset", navInset / density))
+            .put("navInset", navInset / density)
     }
 }

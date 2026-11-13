@@ -4,12 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 
 const source = await readFile(new URL('../web/listen/saved-sentences.js', import.meta.url), 'utf8');
+const savedState = await readFile(new URL('../web/listen/saved-state.js', import.meta.url), 'utf8');
 const shim = await readFile(new URL('../web/listen/player-shim.js', import.meta.url), 'utf8');
 const settle = async () => { for (let i = 0; i < 25; i++) await Promise.resolve(); };
-const item = { k: 'course#2', dir: '/lessons/course', a: 31.2, b: 35.6, s: 'Saved sentence', t: '收藏的句子', title: 'Course' };
+const item = { k: '/lessons/course#2', n: 2, dir: '/lessons/course', a: 31.2, b: 35.6, s: 'Saved sentence', t: '收藏的句子', title: 'Course' };
 
 function fixture({ fail = false } = {}) {
-  const dom = new JSDOM('<div id="saved"><button data-k="course#2"><svg width="16" height="16"></svg></button></div><audio id="au"></audio><script type="application/json" id="data"></script>', {
+  const dom = new JSDOM('<div id="saved"><button data-k="/lessons/course#2"><svg width="16" height="16"></svg></button></div><audio id="au"></audio><script type="application/json" id="data"></script>', {
     url: 'https://localhost/listen/library.html', runScripts: 'outside-only', pretendToBeVisual: true,
   });
   const w = dom.window, commands = [], preparations = [], errors = [];
@@ -17,12 +18,13 @@ function fixture({ fail = false } = {}) {
   w.document.getElementById('data').textContent = JSON.stringify({ lessons: [{ id: 'course', dir: '/lessons/course', legacyIds: ['cet6-course'] }] });
   w.hwfeeBeforeSavedClip = () => { before++; };
   w.hwfeeToast = (...args) => errors.push(args);
+  w.fetch = async () => ({ ok: true, status: 200, text: async () => '<script id="data">' + JSON.stringify({ sentences: [item] }) + '</script>' });
   w.Capacitor = { Plugins: { Audio: {
     addListener: async (_, callback) => { listener = callback; return { remove() {} }; },
     nativePrepare: async data => { preparations.push(data); if (fail) throw new Error('File unavailable'); return { prepared: true }; },
     nativeControl: async data => { commands.push(data); return {}; },
   } } };
-  w.eval(source);
+  w.eval(savedState); w.eval(source);
   return { dom, w, commands, preparations, errors, get before() { return before; }, publish: data => listener(data) };
 }
 
@@ -33,6 +35,7 @@ test('saved playback prepares the native decoder and uses the exact clip range w
   assert.equal(f.preparations[0].source, 'https://localhost/lessons/course/audio/episode.mp4');
   const play = f.commands.find(command => command.action === 'play');
   assert.equal(play.start, 31.2); assert.equal(play.end, 35.6); assert.equal(play.loop, false);
+  assert.equal(play.drill, true);
   assert.equal(f.commands.find(command => command.action === 'seek').position, 31.2);
   assert.equal(f.w.document.querySelector('audio').getAttribute('src'), null, 'Android owns clip decoding');
   assert.equal(f.w.document.querySelector('button').getAttribute('aria-label'), '暂停句子');
@@ -41,13 +44,58 @@ test('saved playback prepares the native decoder and uses the exact clip range w
   f.dom.window.close();
 });
 
-test('embedded saved and review playback opens the original player without starting an inline decoder', async () => {
+test('embedded saved and review playback stays in its panel and uses the native decoder', async () => {
   const f = fixture(), opened = [];
-  Object.defineProperty(f.w, 'parent', { value: { hwfeeOpenSavedSentence: row => opened.push(row) } });
+  Object.defineProperty(f.w, 'parent', { value: { hwfeeOpenSavedSentence: row => opened.push(row), hwfeeBeforeSavedClip: () => {} } });
   await f.w.__hwfeeSaved.play(item);
-  assert.deepEqual(opened, [item]);
+  assert.deepEqual(opened, []);
+  assert.equal(f.preparations.length, 1);
+  assert.equal(f.commands.find(command => command.action === 'play').drill, true);
+  f.dom.window.close();
+});
+
+test('a missing saved sentence is deleted without playback or navigation', async () => {
+  const f = fixture();
+  f.w.localStorage.setItem('cherina-pod:saved', JSON.stringify([item]));
+  f.w.fetch = async () => ({ ok: false, status: 404 });
+  await f.w.__hwfeeSaved.play(item);
+  assert.deepEqual(JSON.parse(f.w.localStorage.getItem('cherina-pod:saved')), []);
   assert.equal(f.preparations.length, 0);
-  assert.equal(f.commands.length, 0);
+  f.dom.window.close();
+});
+
+test('switching bookmarks stops the old clip even while the next course is still being checked', async () => {
+  const f = fixture();
+  try {
+    await f.w.__hwfeeSaved.play(item);
+    const oldSource = f.preparations.at(-1).sourceId;
+    const next = { ...item, k: '/lessons/course#3', s: 'A missing line' };
+    const button = f.w.document.createElement('button');
+    button.dataset.k = next.k;
+    f.w.document.getElementById('saved').append(button);
+    let finish;
+    f.w.fetch = () => new Promise(resolve => { finish = resolve; });
+    const pending = f.w.__hwfeeSaved.play(next);
+    await settle();
+    assert.equal(f.commands.at(-1).action, 'pause');
+    assert.equal(f.commands.at(-1).sourceId, oldSource);
+    f.publish({ sourceId: oldSource, playing: true, sequence: 9 });
+    assert.equal(button.disabled, true, 'a late event from the old clip must not mark the next one ready');
+    finish({ ok: false, status: 404 });
+    await pending;
+    assert.equal(f.preparations.length, 1);
+    assert.equal(button.disabled, false);
+  } finally { f.dom.window.close(); }
+});
+
+test('saved playback uses the course audio source and never stores embedded audio in bookmarks', async () => {
+  const f = fixture();
+  const audio = 'data:audio/mp4;base64,AAAA';
+  f.w.localStorage.setItem('cherina-pod:saved', JSON.stringify([item]));
+  f.w.fetch = async () => ({ ok: true, status: 200, text: async () => '<script id="data">' + JSON.stringify({ sentences: [item], audio }) + '</script>' });
+  await f.w.__hwfeeSaved.play(item);
+  assert.equal(f.preparations[0].source, audio);
+  assert.equal(f.w.localStorage.getItem('cherina-pod:saved').includes('base64'), false);
   f.dom.window.close();
 });
 

@@ -10,6 +10,17 @@
 
 #article .sent { cursor: default; }
 
+.reader-gesture-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink2);
+}
+.reader-highlight-status { display: flex; align-items: center; gap: 12px; color: var(--ink2); font-size: 12px; line-height: 1.5; }
+.reader-highlight-status > span { flex: 1; min-width: 0; }
+.reader-highlight-refresh { flex: none; min-height: 44px; padding: 6px 0 6px 6px; border: 0; background: none; color: var(--acc); font: inherit; font-weight: 600; }
+.reader-highlight-refresh:disabled { color: var(--ink3); }
+
 /* Known words from your Shanbay lists. */
 #article .w.hl-today {
   text-decoration: underline;
@@ -229,6 +240,9 @@
 .popover-kicker + .popover-body .pop-muted { margin-top: 0; }
 
 .pop-translation { margin: 0; font-size: 15px; line-height: 1.55; color: var(--ink); }
+
+.pop-request-status { margin: 0; font-size: 13px; color: var(--ink2); }
+.pop-request-hint { margin: 8px 0; font-size: 12px; line-height: 1.55; color: var(--ink2); }
 
 .pop-foot {
   display: flex;

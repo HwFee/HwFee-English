@@ -27,25 +27,55 @@ function fixture({ fail = false } = {}) {
   return { dom, w, doc: w.document, changes };
 }
 
-test('appearance switch shows the current mode, changes immediately, and can return to system', async () => {
+test('three-segment appearance control shows current mode, switches directly, and supports keyboard navigation', async () => {
   const f = fixture(); await settle();
-  const input = f.doc.getElementById('darkMode'), system = f.doc.getElementById('appearanceSystem');
-  assert.equal(input.checked, true); assert.equal(input.disabled, false); assert.equal(system.hidden, true);
-  input.checked = false; input.dispatchEvent(new f.w.Event('change')); await settle();
-  assert.deepEqual(f.changes, ['light']); assert.equal(input.checked, false); assert.equal(system.hidden, false);
-  input.checked = true; input.dispatchEvent(new f.w.Event('change')); await settle();
-  assert.deepEqual(f.changes, ['light', 'dark']); assert.match(f.doc.getElementById('appearanceState').textContent, /深色/);
-  system.click(); await settle();
-  assert.equal(f.changes.at(-1), 'system'); assert.equal(system.hidden, true);
+  const seg = f.doc.getElementById('appearanceSeg');
+  const btn = (mode) => seg.querySelector(`[data-mode="${mode}"]`);
+  assert.equal(seg.dataset.active, '0');
+  assert.equal(seg.classList.contains('is-disabled'), false);
+  assert.equal(btn('system').getAttribute('aria-checked'), 'true');
+  assert.equal(btn('light').getAttribute('aria-checked'), 'false');
+  assert.equal(btn('dark').getAttribute('aria-checked'), 'false');
+  assert.equal(btn('system').disabled, false);
+  assert.equal(f.doc.getElementById('appearanceSystem'), null, 'legacy reset link is gone');
+
+  // Clicking the already-selected segment does not fire a redundant write
+  btn('system').click(); await settle();
+  assert.deepEqual(f.changes, []);
+
+  btn('light').click(); await settle();
+  assert.deepEqual(f.changes, ['light']);
+  assert.equal(seg.dataset.active, '1');
+  assert.equal(btn('light').getAttribute('aria-checked'), 'true');
+  assert.match(f.doc.getElementById('appearanceState').textContent, /已固定为浅色/);
+
+  btn('dark').click(); await settle();
+  assert.deepEqual(f.changes, ['light', 'dark']);
+  assert.equal(seg.dataset.active, '2');
+  assert.equal(btn('dark').getAttribute('aria-checked'), 'true');
+  assert.match(f.doc.getElementById('appearanceState').textContent, /已固定为深色/);
+
+  // ArrowRight wraps from dark (2) back to system (0)
+  seg.dispatchEvent(new f.w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  await settle();
+  assert.equal(f.changes.at(-1), 'system');
+  assert.equal(seg.dataset.active, '0');
+  assert.equal(btn('system').getAttribute('aria-checked'), 'true');
+  assert.match(f.doc.getElementById('appearanceState').textContent, /跟随系统/);
   assert.equal(f.doc.getElementById('autoTranslate').closest('.card'), f.doc.getElementById('llmState').closest('.card'));
   f.dom.window.close();
 });
 
-test('a failed appearance write restores the last confirmed switch state', async () => {
+test('a failed appearance write restores the last confirmed segment state', async () => {
   const f = fixture({ fail: true }); await settle();
-  const input = f.doc.getElementById('darkMode');
-  input.checked = false; input.dispatchEvent(new f.w.Event('change')); await settle();
-  assert.equal(input.checked, true); assert.equal(input.disabled, false);
+  const seg = f.doc.getElementById('appearanceSeg');
+  const light = seg.querySelector('[data-mode="light"]');
+  const system = seg.querySelector('[data-mode="system"]');
+  light.click(); await settle();
+  assert.equal(seg.dataset.active, '0');
+  assert.equal(system.getAttribute('aria-checked'), 'true');
+  assert.equal(light.getAttribute('aria-checked'), 'false');
+  assert.equal(light.disabled, false);
   assert.match(f.doc.getElementById('toast').textContent, /外观切换失败/);
   f.dom.window.close();
 });
@@ -62,12 +92,12 @@ test('explicit palettes reach shell and loaded lesson styles without relying on 
   frame.dispatchEvent(new f.w.Event('load'));
   assert.equal(style.sheet.cssRules[0].media.mediaText, 'all');
   assert.equal(frame.contentDocument.styleSheets[0].cssRules[0].media.mediaText, 'all');
-  const input = f.doc.getElementById('darkMode');
-  input.checked = false; input.dispatchEvent(new f.w.Event('change')); await settle();
+  const seg = f.doc.getElementById('appearanceSeg');
+  seg.querySelector('[data-mode="light"]').click(); await settle();
   assert.equal(style.sheet.cssRules[0].media.mediaText, 'not all');
   assert.equal(frame.contentDocument.styleSheets[0].cssRules[0].media.mediaText, 'not all');
   assert.equal(frame.contentDocument.documentElement.style.colorScheme, 'light');
-  input.checked = true; input.dispatchEvent(new f.w.Event('change')); await settle();
+  seg.querySelector('[data-mode="dark"]').click(); await settle();
   assert.equal(style.sheet.cssRules[0].media.mediaText, 'all');
   f.dom.window.close();
 });

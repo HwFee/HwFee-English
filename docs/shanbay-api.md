@@ -76,6 +76,15 @@ Vocab entry shape: `{vocab, variants, categories}`, e.g.
 
 - `variants` carries the inflections — highlighting has to match these, not just `vocab`.
 - `categories` is a bitmask in the order `today, wordbook, learned, unlearned` (so `8` = unlearned).
+- `covered_categories` is the category-coverage bitmask, intersected across pages; `degraded` and
+  `date` must not be discarded. Missing today/wordbook coverage is not a complete cache success.
+
+Read-only inspection of the installed Zen extension **0.17.1** on 2026-11-11 confirmed its variant
+merging, coverage/date metadata and periodic synchronization. The app keeps a six-hour offline
+snapshot but revalidates on reader entry/resume (one-minute throttle), shows partial-sync failures,
+and offers **刷新高亮**. The already-fetched NEW/REVIEW headwords supplement the feed without another
+learning-list request; their flags apply to provider-supplied variants. Yesterday's daily flags do
+not survive a date rollover. See [the reader validation](READER-GESTURES-2026-11-11.md).
 
 This feed is a subset for highlighting. Its `wordbook` and `learned` totals must not
 populate the home dashboard. Live checks on 2026-11-03 returned 364 collected words

@@ -9,6 +9,7 @@
 <title>HwFee English</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <link rel="stylesheet" href="./shell.css">
+<script src="./listen/saved-state.js"></script>
 <script type="module" src="./shell.js"></script>
 </head>
 <body>
@@ -27,43 +28,62 @@
 
     <section class="pane pane-settings" data-pane="settings">
       <div class="set-wrap">
+        <div class="settings-kicker">账号、翻译与偏好</div>
         <h1>设置</h1>
 
+        <div class="settings-group-label">用量与状态</div>
         <section class="card usage-card">
           <div class="ua-head">
             <h2>用量 · 近 30 天</h2>
             <button class="hint-action" type="button" id="usageRefresh">重新读取</button>
           </div>
+          <div class="usage-stats" id="usageFoot" aria-label="近 30 天本机统计">
+            <div class="usage-stat"><b id="usageRequests">—</b><span>请求</span></div>
+            <div class="usage-stat"><b id="usageCacheHits">—</b><span>缓存</span></div>
+            <div class="usage-stat"><b id="usagePrepared">—</b><span>预译</span></div>
+            <div class="usage-stat"><b id="usageAnalyzed">—</b><span>分析</span></div>
+          </div>
           <div class="ua-row"><span class="ua-label">扇贝额度</span>
             <span class="ua-val u-num" id="usageQuotaVal">—</span></div>
           <div class="ua-meter" role="meter" aria-valuemin="0" aria-valuemax="100"
                aria-label="扇贝剩余额度"><i id="usageQuotaFill"></i></div>
-          <div class="ua-detail"><p class="ua-sub" id="usageQuotaSub">读取中…</p><time class="ua-time" id="usageQuotaTime" hidden></time></div>
-          <div class="ua-split">
-            <div class="ue-bal u-num"><b id="usageBalanceVal">—</b>
-              <span class="lbl">DeepSeek 余额</span></div>
-            <div class="ua-detail"><p class="ue-comp u-num" id="usageBalanceComp">读取中…</p><time class="ua-time" id="usageBalanceTime" hidden></time></div>
+          <div class="usage-meta"><p class="ua-sub" id="usageQuotaSub">读取中…</p><time class="ua-time" id="usageQuotaTime" hidden></time></div>
+          <div class="usage-pair">
+            <div class="usage-col">
+              <div class="usage-col-label">DeepSeek 余额</div>
+              <div class="usage-col-value u-num" id="usageBalanceVal">—</div>
+              <p class="usage-col-sub u-num" id="usageBalanceComp">读取中…</p>
+            </div>
+            <div class="usage-col">
+              <div class="usage-col-label">30 天 Token</div>
+              <div class="usage-col-value u-num" id="usageTokensVal">—</div>
+              <p class="usage-col-sub u-num" id="usageTokensComp">读取中…</p>
+            </div>
           </div>
-          <div class="ua-split">
-            <div class="ua-row"><span class="ua-label">个人 API · 30 天</span>
-              <span class="ua-val u-num" id="usageTokensVal">—</span></div>
-            <p class="ue-comp u-num" id="usageTokensComp">读取中…</p>
-          </div>
-          <p class="u-foot"><span id="usageFoot">读取中…</span></p>
         </section>
 
+        <div class="settings-group-label">连接与翻译</div>
         <section class="card account-card">
           <div class="settings-card-head"><h2>扇贝账号</h2><p class="state" id="shanbayState">检查中…</p></div>
           <div class="row">
             <button class="btn is-primary" id="shanbayLogin">网页登录</button>
-            <button class="btn is-danger-soft" id="shanbayClear" disabled>断开连接</button>
+            <button class="btn is-danger-soft" id="shanbayClear" disabled hidden>断开连接</button>
           </div>
+          <details class="cookie-settings" id="cookieSettings">
+            <summary><span>手动粘贴 Cookie</span><span class="cookie-summary-right"><span>备用登录</span><svg class="chev" data-icon="caret-right" width="13" height="13" aria-hidden="true"></svg></span></summary>
+            <div class="cookie-fields">
+              <label class="field"><span class="field-label">粘贴 Cookie 或浏览器 cURL</span>
+                <textarea id="cookieInput" rows="2" spellcheck="false" placeholder="auth_token=…; csrftoken=…"></textarea>
+              </label>
+              <button class="btn is-primary is-wide" id="cookieSave" type="button">验证并保存登录态</button>
+            </div>
+          </details>
         </section>
 
         <section class="card ai-card">
-          <div class="settings-card-head"><div class="setting-title"><h2>翻译与分析</h2><button class="info-button" id="routingHelp" type="button" aria-label="翻译与分析使用说明" aria-expanded="false" aria-controls="routingHint"><svg data-icon="info" width="15" height="15"></svg></button></div><p class="state" id="llmState">检查中…</p></div>
-          <div class="settings-help" id="routingHint" role="region" aria-label="翻译与分析使用说明" hidden><strong>优先使用扇贝</strong><p>翻译和长难句分析优先使用扇贝额度；扇贝不可用时使用个人 API，会消耗 Token。没有连接扇贝时，直接使用已配置的个人 API。</p></div>
-          <details class="api-settings" id="apiSettings"><summary><span class="ua-label">个人 API</span><span class="api-current"><span class="v" id="apiModelName">未配置</span><svg class="chev" data-icon="caret-left" width="13" height="13" aria-hidden="true"></svg></span></summary><div class="api-fields">
+          <div class="settings-card-head"><h2>翻译与分析</h2><p class="state" id="llmState">检查中…</p></div>
+          <p class="settings-card-sub">扇贝优先，不可用时回退个人 API</p>
+          <details class="api-settings" id="apiSettings" open><summary><span class="ua-label">个人 API</span><span class="api-current"><span class="v" id="apiModelName">未配置</span><svg class="chev" data-icon="caret-right" width="13" height="13" aria-hidden="true"></svg></span></summary><div class="api-fields">
           <label class="field">回退 API Key
             <input id="llmKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
           </label>
@@ -71,59 +91,68 @@
             <input id="llmBase" type="url" spellcheck="false" placeholder="https://api.deepseek.com">
           </label>
           <div class="field">
+            <span class="field-label">模型</span>
             <div class="model-box">
               <div class="model-head" id="llmModelHead" role="button" tabindex="0"
                    aria-expanded="false" aria-controls="llmModelList">
-                <span class="field-label">模型</span>
                 <span class="m-current" id="llmModelCurrent">未选择</span>
-                <svg class="m-chev" data-icon="caret-left" width="14" height="14"></svg>
+                <svg class="m-chev" data-icon="caret-right" width="14" height="14"></svg>
               </div>
               <div class="model-list" id="llmModelList" role="listbox" aria-label="模型" hidden></div>
             </div>
           </div>
-          <label class="field" id="llmManualField" hidden>模型 ID
-            <input id="llmModel" type="text" spellcheck="false" placeholder="输入模型 ID">
+          <label class="field" id="llmManualField" hidden>自定义模型 ID
+            <input id="llmModel" type="text" spellcheck="false" placeholder="例如 gpt-4o-mini">
           </label>
           <div class="row">
-            <button class="btn is-primary" id="llmSave">保存</button>
+            <button class="btn is-primary" id="llmSave">保存接口设置</button>
           </div>
           <p class="api-actions">
-            <button class="hint-action" type="button" id="llmModelRefresh">重新获取</button>
+            <button class="hint-action" type="button" id="llmModelRefresh">保存并刷新模型列表</button>
             <span class="api-note" id="llmModelsHint" role="status" aria-live="polite"></span>
             <button class="hint-action is-danger" type="button" id="llmClear" hidden>清除密钥</button>
           </p>
           </div></details>
           <div class="pretranslation-setting">
             <div class="setting-toggle">
-              <div class="setting-title"><label for="autoTranslate">自动预加载今日文章</label><button class="info-button" id="pretranslationHelp" type="button" aria-label="预加载说明和状态详情" aria-expanded="false" aria-controls="autoTranslateHint"><svg data-icon="info" width="15" height="15"></svg></button></div>
+              <div class="s-toggle-copy">
+                <label for="autoTranslate">自动预加载今日文章</label>
+                <p id="pretranslationState" role="status" aria-live="polite">自动缓存今日译文与分析 · 缓存 30 天</p>
+              </div>
               <input id="autoTranslate" type="checkbox" role="switch" aria-label="自动预加载今日文章" disabled>
             </div>
-            <div class="settings-help" id="autoTranslateHint" role="region" aria-label="预加载说明" hidden>
-              <strong>提前准备，阅读时少等待</strong>
-              <p>自动准备今日文章的翻译和长难句分析，结果缓存 30 天。优先使用扇贝额度，不可用时使用个人 API，会消耗 Token。</p>
-              <p>失败后保留已完成的结果，暂停本篇自动重试；可点击“重试”。新文章会自动准备。</p>
-              <p id="pretranslationDetail" hidden></p>
-            </div>
-            <div class="pretranslation-status"><p id="pretranslationState" role="status" aria-live="polite"></p><button class="hint-action" id="pretranslationRetry" type="button" hidden>重试</button></div>
+            <div class="pretranslation-status"><button class="hint-action" id="pretranslationRetry" type="button" hidden>重试</button></div>
+            <p class="pretranslation-detail" id="pretranslationDetail" hidden></p>
           </div>
         </section>
 
+        <div class="settings-group-label">外观</div>
         <section class="card appearance-card" aria-label="外观">
-          <div class="setting-toggle">
-            <div class="appearance-copy">
-              <label for="darkMode">深色模式</label>
-              <p id="appearanceState">跟随系统</p>
-            </div>
-            <input id="darkMode" type="checkbox" role="switch" aria-label="深色模式" disabled>
+          <div class="appearance-head">
+            <span class="appearance-title" id="appearanceLabel">主题外观</span>
+            <p class="appearance-meta" id="appearanceState">跟随系统</p>
           </div>
-          <button class="hint-action" id="appearanceSystem" type="button" hidden>跟随系统</button>
+          <div class="appearance-seg is-disabled" id="appearanceSeg" role="radiogroup" aria-labelledby="appearanceLabel" data-active="0">
+            <span class="appearance-seg-thumb" aria-hidden="true"></span>
+            <button class="appearance-seg-btn" type="button" role="radio" data-mode="system" aria-checked="true" disabled>跟随系统</button>
+            <button class="appearance-seg-btn" type="button" role="radio" data-mode="light" aria-checked="false" tabindex="-1" disabled>浅色</button>
+            <button class="appearance-seg-btn" type="button" role="radio" data-mode="dark" aria-checked="false" tabindex="-1" disabled>深色</button>
+          </div>
         </section>
-
-
       </div>
     </section>
 
   </main>
+
+  <div class="mini-player" id="miniPlayer" hidden>
+    <button class="mini-open" id="miniOpen" type="button" aria-label="返回播放器">
+      <span class="mini-cover" id="miniCover" aria-hidden="true">E</span>
+      <span class="mini-copy"><b id="miniTitle">精听</b><span id="miniState">点按返回播放器</span></span>
+    </button>
+    <button class="mini-toggle" id="miniToggle" type="button" aria-label="播放或暂停"></button>
+    <button class="mini-close" id="miniClose" type="button" aria-label="收起并暂停">✕</button>
+    <span class="mini-progress" aria-hidden="true"><i id="miniProgress"></i></span>
+  </div>
 
   <button class="import" id="importBtn" aria-label="导入课程 zip" title="导入课程 zip">
     <svg data-icon="download-simple" width="20" height="20"></svg>

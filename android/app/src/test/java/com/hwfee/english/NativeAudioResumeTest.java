@@ -161,17 +161,6 @@ public class NativeAudioResumeTest {
         assertFalse((boolean) ReflectionHelpers.getField(engine, "wanted"));
     }
 
-    @Test public void loopingPausesBeforeSeekingBackAndRetainsActualBoundaryOverrun() throws Exception {
-        engine.range(30, 41.9, true); drain();
-        engine.play(); drain();
-        engine.execute(() -> ((Runnable) ReflectionHelpers.getField(engine, "ticker")).run()); drain();
-        assertFalse(engine.playing());
-        assertEquals(1, decoder.pauses);
-        assertEquals(30000, decoder.seekPosition);
-        assertEquals(42, engine.snapshot().optDouble("boundaryPosition"), 0);
-        assertEquals(100, engine.snapshot().optLong("boundaryOvershootMs"));
-    }
-
     @Test public void aNormalSentenceStopDoesNotHideAReportedLateBoundary() throws Exception {
         engine.range(30, 41.9, false); drain();
         // Drive one sample deterministically; play() would also enqueue a ticker.

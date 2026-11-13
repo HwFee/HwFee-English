@@ -242,6 +242,8 @@ function shapeToday(today) {
     date: status?.date ?? today.date ?? null,
     status,
     book: today.book || '',
+    // Keep the verified daily headwords: the extension highlight feed can lag today's learning.
+    words: (today.words || []).map(({ id, word }) => ({ id, word })),
   };
 }
 
@@ -304,7 +306,7 @@ async function fetchState({ force }) {
 }
 
 function countWords(paragraphs) {
-  return paragraphs.join(' ').match(/[A-Za-z]+(?:[-’'][A-Za-z]+)*/g)?.length || 0;
+  return paragraphs.join(' ').match(/[A-Za-z]+(?:[-‐‑’‘ʼ'][A-Za-z]+)*/g)?.length || 0;
 }
 
 /** Cached articles, newest first — the 近几篇 list. */

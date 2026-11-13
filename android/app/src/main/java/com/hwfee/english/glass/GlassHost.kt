@@ -21,6 +21,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnAttach
 
 /** Reparents the WebView into a ComposeView whose backdrop the tab bar samples. */
 object GlassHost {
@@ -36,11 +37,10 @@ object GlassHost {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         val host = ComposeView(activity)
         ViewCompat.setOnApplyWindowInsetsListener(host) { _, insets ->
-            GlassState.navInsetPx.floatValue =
-                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom.toFloat()
+            GlassState.updateNavigationInset(
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom)
             insets
         }
-        ViewCompat.requestApplyInsets(host)
         host.setContent {
             val backdrop = rememberLayerBackdrop()
             // Both the top action and the bottom switcher read this one animation.
@@ -73,5 +73,7 @@ object GlassHost {
         parent.addView(host, index, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         GlassState.hostInstalled = true
+        host.doOnAttach { ViewCompat.requestApplyInsets(it) }
+        GlassState.plugin?.onMetricsChanged()
     }
 }

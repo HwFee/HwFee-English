@@ -161,7 +161,9 @@ public class PlaybackService extends Service {
 
     private void scheduleSleep(int seconds) {
         clearSleep();
+        nativeEngine.setSleep(seconds);
         if (seconds <= 0) return;
+        if (!nativeEngine.hasSource()) AudioBridge.evalPlay();
         sleepEndsAt = SystemClock.elapsedRealtime() + seconds * 1000L;
         PowerManager power = (PowerManager) getSystemService(Context.POWER_SERVICE);
         sleepWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HwFeeEnglish:sleep");
@@ -169,11 +171,15 @@ public class PlaybackService extends Service {
         // Handler uses uptime. Keep the CPU awake only while a requested timer is pending,
         // so screen-off/deep sleep cannot delay the pause; the timeout also bounds this lock.
         sleepWakeLock.acquire(seconds * 1000L + 5000);
-        sleepTask = () -> {
-            pauseAudio();
-            clearSleep();
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            manager.notify(NOTIFICATION_ID, buildNotification());
+        sleepTask = new Runnable() {
+            @Override public void run() {
+                if (sleepTask != this) return;
+                clearSleep();
+                nativeEngine.finishSleep();
+                if (!nativeEngine.hasSource()) AudioBridge.evalPause();
+                NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                manager.notify(NOTIFICATION_ID, buildNotification());
+            }
         };
         handler.postDelayed(sleepTask, seconds * 1000L);
     }
@@ -319,6 +325,7 @@ public class PlaybackService extends Service {
         artworkExecutor.shutdownNow();
         active = false;
         clearSleep();
+        if (nativeEngine != null) nativeEngine.setSleep(0);
         stopForeground(true);
         if (session != null) {
             session.setActive(false);

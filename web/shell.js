@@ -23,7 +23,7 @@ const TOAST_ICONS = { success: 'check-bold', error: 'exclamation-mark-bold', inf
 
 /** The prompt island: one message at a time, dropping in from the top like the Dynamic Island. */
 function toast(message, options = {}) {
-  const { kind = 'info', detail = '', ms = kind === 'progress' ? 60000 : kind === 'error' ? 5000 : 2600 } =
+  const { kind = 'info', detail = '', undo = null, ms = kind === 'progress' ? 60000 : kind === 'error' ? 5000 : undo ? 3500 : 2600 } =
     typeof options === 'number' ? { ms: options } : options;
   if (options.background && toastInProgress) { deferredToast = { message, options }; return; }
   toastInProgress = kind === 'progress';
@@ -36,7 +36,17 @@ function toast(message, options = {}) {
   text.append(Object.assign(document.createElement('b'), { textContent: message }));
   if (detail) text.append(Object.assign(document.createElement('small'), { textContent: detail }));
   toastEl.className = 'toast is-' + kind;
-  toastEl.replaceChildren(mark, text);
+  const children = [mark, text];
+  if (typeof undo === 'function') {
+    const action = document.createElement('button');
+    action.type = 'button'; action.className = 'toast-action'; action.textContent = '撤销';
+    action.onclick = () => {
+      clearTimeout(toastTimer); toastEl.classList.remove('is-on'); toastEl.hidden = true;
+      undo();
+    };
+    children.push(action);
+  }
+  toastEl.replaceChildren(...children);
   toastEl.hidden = false;
   requestAnimationFrame(() => toastEl.classList.add('is-on'));
   clearTimeout(toastTimer);
@@ -77,17 +87,20 @@ function fallbackChrome() {
   tabBarApi?.setState({ hidden: true }).catch(() => {});
 }
 
+function applyNativeMetrics(m) {
+  if (!m?.available || nativeChromeFailed) return;
+  useNativeChrome(true);
+  const root = document.documentElement.style;
+  if (Number.isFinite(m?.reserve)) root.setProperty('--island-reserve', m.reserve + 'px');
+  // The WebView is only inset below the status bar, so pages that anchor to the
+  // bottom (the lesson player's dock) need the gesture bar's height explicitly.
+  if (Number.isFinite(m?.navInset)) root.setProperty('--hwfee-nav-inset', m.navInset + 'px');
+  propagateReserve();
+}
+
 if (tabBarApi) {
-  tabBarApi.getMetrics().then((m) => {
-    if (!m?.available || nativeChromeFailed) return;
-    useNativeChrome(true);
-    const root = document.documentElement.style;
-    if (Number.isFinite(m?.reserve)) root.setProperty('--island-reserve', m.reserve + 'px');
-    // The WebView is only inset below the status bar, so pages that anchor to the
-    // bottom (the lesson player's dock) need the gesture bar's height explicitly.
-    if (Number.isFinite(m?.navInset)) root.setProperty('--hwfee-nav-inset', m.navInset + 'px');
-    propagateReserve();
-  }).catch(fallbackChrome);
+  tabBarApi.addListener('metricsChanged', applyNativeMetrics);
+  tabBarApi.getMetrics().then(applyNativeMetrics).catch(fallbackChrome);
   tabBarApi.addListener('tabSelected', ({ tab }) => showTab(tab));
   tabBarApi.addListener('actionPressed', ({ action }) => {
     if (action === 'import' && state.tab === 'listen') importLessons();
@@ -151,6 +164,14 @@ function showTab(name) {
   if (state.tab === 'read') {
     try { readFrame.contentWindow?.hwfeeDismissPopover?.(); } catch {}
   }
+  if (state.tab === 'listen' && name !== 'listen') {
+    // A pending frame load or chrome animation must not open a page after leaving this tab.
+    ++playerNavigation;
+    showPlayerWhenLoaded = false;
+    listenNavigating = false;
+    pendingSavedSentence = null;
+    clearTimeout(playerReadyTimer);
+  }
 
   state.tab = name;
 
@@ -205,9 +226,21 @@ function invalidateImportedPlayer(imported) {
   closePlayer();
   nowPlaying = null;
   playerReady = false;
+  updateMiniPlayer();
   delete playerFrame.dataset.src;
   delete playerFrame.dataset.savedClip;
   playerFrame.src = 'about:blank';
+}
+
+async function reconcileSavedImport(result, api) {
+  const saved = window.__hwfeeSavedState;
+  if (!result?.imported?.length || !saved?.read().length) return;
+  try {
+    const library = JSON.parse((await api.list()).data);
+    if (!Array.isArray(library.lessons)) throw new Error('课程列表不完整');
+    await saved.reconcile(library.lessons);
+    window.hwfeeSavedChanged();
+  } catch { toast('课程已导入，收藏核对未完成', { kind: 'error' }); }
 }
 
 function reloadRead() {
@@ -222,6 +255,21 @@ function clearVocabCache() {
   try { localStorage.removeItem('hwfee:vocab'); } catch {}
 }
 
+async function finishImport(result, api) {
+  const imported = result?.imported ?? [];
+  const failed = result?.failed ?? [];
+  if (failed.length) {
+    const message = imported.length ? `导入 ${imported.length} 节，${failed.length} 节失败` : '没有导入成功';
+    toast(message, { kind: 'error', detail: failed[0], ms: 6000 });
+  } else if (imported.length) {
+    toast(`已导入 ${imported.length} 节课`, { kind: 'success' });
+  }
+  if (!imported.length) return;
+  invalidateImportedPlayer(imported);
+  await reconcileSavedImport(result, api);
+  reloadLibrary();
+}
+
 async function importLessons() {
   const api = plugins()?.Lessons;
   if (!api) { toast('导入只在 Android app 里可用'); return; }
@@ -232,13 +280,7 @@ async function importLessons() {
   toast('正在导入课程', { kind: 'progress', detail: '课程多的时候要等一会儿' });
   try {
     const result = await api.importZip();
-    const imported = result?.imported?.length ?? 0;
-    const failed = result?.failed ?? [];
-    if (imported === 0 && failed.length) toast('没有导入成功', { kind: 'error', detail: failed[0], ms: 6000 });
-    else if (failed.length) toast(`导入 ${imported} 节，${failed.length} 节失败`, { kind: 'error' });
-    else toast(`已导入 ${imported} 节课`, { kind: 'success' });
-    invalidateImportedPlayer(result?.imported);
-    reloadLibrary();
+    await finishImport(result, api);
   } catch (error) {
     const message = String(error?.message ?? error);
     if (message.includes('cancel') || message.includes('取消')) toast('已取消导入');
@@ -259,11 +301,7 @@ async function consumeShared() {
   try {
     const result = await api.consumeShared();
     window.hwfeeLastImport = result;
-    const imported = result?.imported?.length ?? 0;
-    if (!imported) return;
-    toast(`已导入 ${imported} 节课`, { kind: 'success' });
-    invalidateImportedPlayer(result.imported);
-    reloadLibrary();
+    await finishImport(result, api);
   } catch (error) {
     toast('导入失败', { kind: 'error', detail: error.message });
   }
@@ -306,8 +344,68 @@ function togglePlayer() {
     if (audio.paused) audio.play().catch(() => {});
     else audio.pause();
   } catch {}
-  setTimeout(decorateLibrary, 150);
+  setTimeout(() => { decorateLibrary(); updateMiniPlayer(); }, 150);
 }
+
+let miniDismissed = false;
+let listenHeroScrolledPast = false;
+
+function updateMiniPlayer() {
+  const bar = $('miniPlayer');
+  const visible = Boolean(nowPlaying?.dir) && !miniDismissed && !app.classList.contains('is-immersive')
+    && playerFrame.dataset.savedClip !== '1' && (state.tab !== 'listen' || listenHeroScrolledPast);
+  bar.hidden = !visible;
+  if (!nowPlaying) return;
+  $('miniTitle').textContent = nowPlaying.title || '精听';
+  const stage = ['盲听', '精听', '对照', '再盲听'][nowPlaying.step];
+  $('miniState').textContent = `第 ${nowPlaying.segment || 1} 段${stage ? ' · ' + stage : ''} · 点按返回播放器`;
+  const playing = playerFrame.dataset.review !== '1' && playerPlaying();
+  const toggle = $('miniToggle');
+  const glyphState = playing ? 'pause' : 'play';
+  if (toggle.dataset.glyph !== glyphState) {
+    toggle.innerHTML = playing ? PAUSE_GLYPH : PLAY_GLYPH;
+    toggle.dataset.glyph = glyphState;
+  }
+  toggle.setAttribute('aria-label', playing ? '暂停' : '播放');
+  const duration = Number(nowPlaying.duration) || 0;
+  const position = Number(nowPlaying.position) || 0;
+  $('miniProgress').style.width = (duration > 0 ? Math.min(100, Math.max(0, position / duration * 100)) : 0) + '%';
+  const cover = $('miniCover');
+  const artwork = nowPlaying.artwork || '';
+  if (cover.dataset.artwork !== artwork) {
+    cover.dataset.artwork = artwork;
+    cover.replaceChildren();
+    if (artwork) {
+      const image = document.createElement('img'); image.src = artwork; image.alt = '';
+      image.onerror = () => { cover.dataset.artwork = ''; cover.textContent = (nowPlaying.title || 'E').trim()[0] || 'E'; };
+      cover.append(image);
+    } else cover.textContent = (nowPlaying.title || 'E').trim()[0] || 'E';
+  }
+}
+
+$('miniOpen').addEventListener('click', () => {
+  if (!nowPlaying?.dir) return;
+  miniDismissed = false;
+  // The lesson document is still loaded; reveal it before switching tabs so the
+  // library never flashes between the mini bar and the player.
+  let hasPlayer = false;
+  try { hasPlayer = Boolean(playerFrame.contentDocument?.querySelector('audio')); } catch {}
+  if (hasPlayer) {
+    playerFrame.hidden = false;
+    listenFrame.hidden = true;
+    showTab('listen');
+    decorateLibrary();
+    return;
+  }
+  showTab('listen');
+  openLesson('/lessons/' + nowPlaying.dir + '/player.html');
+});
+$('miniToggle').addEventListener('click', togglePlayer);
+$('miniClose').addEventListener('click', () => {
+  if (playerPlaying()) togglePlayer();
+  miniDismissed = true;
+  updateMiniPlayer();
+});
 
 /** The playing lesson's round button becomes pause; the card itself stays a way back in. */
 function decorateLibrary() {
@@ -348,6 +446,7 @@ let playerReloads = 0;
 let playerNavigation = 0;
 let listenNavigating = false;
 let readerPageOpen = false;
+let reviewPageOpen = false;
 let playerReady = false;
 let playerReadyTimer = 0;
 let pendingSavedSentence = null;
@@ -381,7 +480,10 @@ function openLesson(href, savedSentence = null) {
       if (revision !== playerNavigation || state.tab !== 'listen') return;
       delete playerFrame.dataset.savedClip;
       nowPlaying = null;
-      openLesson(href, savedSentence);
+      const restored = new URL(href, location.origin + '/listen/library.html');
+      restored.searchParams.set('resumeCheckpoint', '1');
+      restored.searchParams.set('resumeAt', String(Date.now()));
+      openLesson(restored.href, savedSentence);
     });
     return;
   }
@@ -449,16 +551,44 @@ function closePlayer() {
   return true;
 }
 
-window.hwfeeOpenSavedSentence = item => {
+window.hwfeeOpenSavedSentence = item => listenFrame.contentWindow?.__hwfeeSaved?.play(item);
+
+window.hwfeeOpenSavedSentenceInLesson = item => {
   try {
-    const doc = listenFrame.contentDocument;
-    const lessons = JSON.parse(doc.getElementById('data')?.textContent || '{}').lessons || [];
+    const lessons = JSON.parse(listenFrame.contentDocument?.getElementById('data')?.textContent || '{}').lessons || [];
     const raw = String(item.dir || '').replace(/\/$/, '');
     const id = /^\/lessons\/([^/]+)/.exec(raw)?.[1] || raw.split('/').pop();
     const lesson = lessons.find(row => row.id === id || row.dir === raw || row.legacyIds?.includes(id));
     if (!lesson?.dir) throw new Error('请重新导入对应课程');
+    miniDismissed = false;
     openLesson(lesson.dir + '/player.html', item);
   } catch (error) { toast('无法打开收藏句子', { kind: 'error', detail: error.message }); }
+};
+
+window.hwfeeRemoveLesson = async lesson => {
+  const api = plugins()?.Lessons;
+  if (!api?.remove || !lesson?.id) { toast('删除课程只在 Android app 里可用'); return false; }
+  if (!confirm(`删除“${lesson.title || '这节课'}”？本地学习记录和收藏句子也会一并清理。`)) return false;
+  try {
+    const result = await api.remove({ id: lesson.id });
+    if (!result?.removed) throw new Error('课程不存在或已被删除');
+    invalidateImportedPlayer([lesson.id]);
+    const library = JSON.parse((await api.list()).data);
+    await window.__hwfeeSavedState?.reconcile(library.lessons || []);
+    for (const key of [`cherina-lesson:${lesson.id}`, ...(lesson.legacyIds || []).map(id => `cherina-lesson:${id}`)]) {
+      try { localStorage.removeItem(key); } catch {}
+    }
+    reloadLibrary();
+    toast('已删除课程', { kind: 'success' });
+    return true;
+  } catch (error) { toast('删除课程失败', { kind: 'error', detail: error.message }); return false; }
+};
+
+window.hwfeeSavedUnavailable = (source, item) => {
+  if (source !== playerFrame.contentWindow) return;
+  window.__hwfeeSavedState?.remove(item);
+  closePlayer();
+  window.hwfeeSavedChanged();
 };
 
 window.hwfeeClosePlayer = closePlayer;
@@ -475,12 +605,20 @@ window.hwfeeBeforeSavedClip = () => {
 // page is served by LessonServer, so they survive the library's own reloads.
 function wireListenFrame() {
   listenNavigating = false;
+  reviewPageOpen = false;
   propagateReserve();
   updateImmersive();
   try {
     const doc = listenFrame.contentDocument;
     if (doc?.body && doc.body.dataset.hwfeeLessons !== '1') {
       doc.body.dataset.hwfeeLessons = '1';
+      listenHeroScrolledPast = (doc.defaultView?.scrollY || 0) > 230;
+      doc.defaultView?.addEventListener('scroll', () => {
+        const passed = (doc.defaultView?.scrollY || 0) > 230;
+        if (passed === listenHeroScrolledPast) return;
+        listenHeroScrolledPast = passed;
+        updateMiniPlayer();
+      }, { passive: true });
       // Lesson links would otherwise navigate the library frame itself; the player frame
       // has to own the document so going back leaves the audio alone.
       doc.addEventListener('click', (event) => {
@@ -543,6 +681,7 @@ window.hwfeeBack = () => {
   try {
     if (state.tab === 'read' && readFrame.contentWindow?.hwfeeReadBack?.()) return true;
     if (state.tab === 'listen') {
+      if (!listenFrame.hidden && listenFrame.contentWindow?.hwfeeCloseReview?.()) return true;
       if (listenNavigating) { listenNavigating = false; updateImmersive(); return true; }
       if (closePlayer()) return true;
       const path = listenFrame.contentWindow?.location?.pathname || '';
@@ -560,6 +699,7 @@ window.hwfeeBack = () => {
 function lessonPageOpen() {
   if (state.tab === 'read') return readerPageOpen ? 'reader' : '';
   if (state.tab !== 'listen') return '';
+  if (reviewPageOpen) return 'review';
   if (showPlayerWhenLoaded || !playerFrame.hidden) return 'player';
   if (listenNavigating) return 'page';
   try {
@@ -574,6 +714,7 @@ function updateImmersive() {
   // A player and a handout both own the bottom of the screen. One class drives both the
   // island and the import button, from one state change, so they cannot drift apart.
   app.classList.toggle('is-immersive', page !== '');
+  updateMiniPlayer();
   return pushTabBarState();
 }
 
@@ -581,11 +722,18 @@ window.hwfeeReadView = (open) => {
   readerPageOpen = Boolean(open);
   return updateImmersive();
 };
+window.hwfeeReviewView = (open) => {
+  if (open && state.tab !== 'listen') showTab('listen');
+  reviewPageOpen = Boolean(open);
+  return updateImmersive();
+};
 window.hwfeeReadBusy = (busy) => tabBarApi?.setState({ refreshBusy: Boolean(busy) }).catch(() => {});
 window.hwfeePlayerState = (detail) => {
   if (!nowPlaying || detail.dir !== nowPlaying.dir) return;
+  if (detail.playing) miniDismissed = false;
   Object.assign(nowPlaying, detail);
   decorateLibrary();
+  updateMiniPlayer();
 };
 
 // ------------------------------------------------------------------- settings
@@ -643,6 +791,7 @@ function renderModelOptions(models, selected) {
     label.textContent = name;
     row.append(label);
     if (sub) {
+      row.title = sub;
       const detail = document.createElement('span');
       detail.className = 'm-id';
       detail.textContent = sub;
@@ -667,7 +816,12 @@ function renderModelOptions(models, selected) {
     $('llmModel').value = id;
     $('llmModelCurrent').textContent = nameFor(id);
     $('llmManualField').hidden = Boolean(id);
-    if (focus && !id) $('llmModel').focus();
+    if (focus) {
+      list.hidden = true;
+      $('llmModelHead').classList.remove('is-open');
+      $('llmModelHead').setAttribute('aria-expanded', 'false');
+      if (!id) $('llmModel').focus();
+    }
   }
   pick(found ? selected : '');
   $('llmModel').value = selected || '';
@@ -686,7 +840,7 @@ $('llmModelHead').addEventListener('keydown', (event) => {
   event.preventDefault();
   $('llmModelHead').click();
 });
-$('llmModelRefresh').addEventListener('click', refreshModelList);
+$('llmModelRefresh').addEventListener('click', () => void saveLlmConfig({ refreshModels: true }));
 
 async function refreshModelList() {
   const hint = $('llmModelsHint');
@@ -734,6 +888,8 @@ async function refreshShanbayState() {
     const { has } = await api.hasCookie();
     el.textContent = has ? '已连接' : '未连接';
     el.className = 'state ' + (has ? 'is-ok' : '');
+    $('shanbayLogin').textContent = has ? '重新登录' : '网页登录';
+    $('shanbayLogin').classList.toggle('is-primary', !has);
     $('shanbayClear').disabled = !has;
     $('shanbayClear').hidden = !has;
   } catch (error) {
@@ -748,6 +904,10 @@ async function refreshLlmState() {
   if (!api) { el.textContent = '仅 app 内可用'; el.className = 'state'; return; }
   try {
     const config = await api.getConfig();
+    const previous = llmConfig;
+    const preserveDraft = Boolean(previous && ($('llmKey').value.trim()
+      || comparableBase($('llmBase').value) !== comparableBase(previous.baseUrl)
+      || selectedModel() !== (previous.model || '')));
     llmConfig = config;
     $('autoTranslate').checked = Boolean(config.autoTranslate);
     $('autoTranslate').disabled = typeof api.setPreferences !== 'function';
@@ -756,11 +916,15 @@ async function refreshLlmState() {
     const selected = (modelCache?.base === config.baseUrl ? modelCache.models : presetsFor(config.baseUrl))?.find(m => m.id === config.model);
     $('apiModelName').textContent = config.has ? (selected?.name || config.model || '已配置') : '未配置';
     $('llmClear').hidden = !config.has;
-    $('llmBase').value = config.baseUrl || '';
-    const cached = modelCache?.base === config.baseUrl ? modelCache.models : null;
-    renderModelOptions(cached ?? presetsFor(config.baseUrl), config.model || '');
-    $('llmModelsHint').textContent = config.has && !cached ? '正在获取模型列表…' : '';
-    if (config.has && !cached) void refreshModelList();
+    $('llmKey').classList.toggle('has-saved-key', Boolean(config.has));
+    $('llmKey').placeholder = config.has ? '●●●●●●●●●●●●' : 'sk-…';
+    if (!preserveDraft) {
+      $('llmBase').value = config.baseUrl || '';
+      const cached = modelCache?.base === config.baseUrl ? modelCache.models : null;
+      renderModelOptions(cached ?? presetsFor(config.baseUrl), config.model || '');
+      $('llmModelsHint').textContent = config.has && !cached ? '正在获取模型列表…' : '';
+      if (config.has && !cached) void refreshModelList();
+    }
   } catch (error) {
     el.textContent = '状态读取失败：' + error.message;
     el.className = 'state';
@@ -811,6 +975,17 @@ function balanceErrorText(error) {
   return byCode[error?.code] ?? '查询失败：' + (error?.message ?? error);
 }
 
+function quotaResetText(value) {
+  if (!value) return '账号共享额度';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const tomorrow = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date(Date.now() + 86400000));
+  const prefix = day === today ? '今日' : day === tomorrow ? '明日' : `${Number(day.slice(5, 7))}月${Number(day.slice(8))}日`;
+  return `${prefix} ${fmtTime(date.getTime())} 重置`;
+}
+
 function renderUsage({ usageError = null, balanceError = null, quotaError = null } = {}) {
   const u = usageSnapshot;
   const sb = u?.shanbay;
@@ -827,9 +1002,12 @@ function renderUsage({ usageError = null, balanceError = null, quotaError = null
     $('usageQuotaVal').textContent = '未获取';
     $('usageQuotaSub').textContent = '点击重新读取查询额度';
   } else {
-    $('usageQuotaVal').textContent = `剩余 ${quota}%`;
-    $('usageQuotaSub').textContent = '账号共享额度';
+    const remaining = document.createElement('small');
+    remaining.textContent = '剩余';
+    $('usageQuotaVal').replaceChildren(remaining, document.createTextNode(`${quota}%`));
+    $('usageQuotaSub').textContent = quotaResetText(sb.quotaResetAt);
   }
+  if (usageError && !quotaError) $('usageQuotaSub').textContent = '读取失败：' + usageError.message + ' · 已保留上次记录';
   if (quotaError) $('usageQuotaSub').textContent = '查询失败：' + quotaError.message
     + (quota == null ? '' : ' · 已保留旧值');
 
@@ -850,15 +1028,16 @@ function renderUsage({ usageError = null, balanceError = null, quotaError = null
     const parts = [];
     if (bi) {
       const mark = CURRENCY_MARK[bi.currency] ?? bi.currency + ' ';
-      if (bi.toppedUpBalance != null) parts.push(`充值 ${mark}${bi.toppedUpBalance}`);
-      if (bi.grantedBalance != null) parts.push(`赠送 ${mark}${bi.grantedBalance}`);
+      const amount = (value) => (/^0(\.0+)?$/.test(String(value)) ? '0' : value);
+      if (bi.toppedUpBalance != null) parts.push(`充值 ${mark}${amount(bi.toppedUpBalance)}`);
+      if (bi.grantedBalance != null) parts.push(`赠送 ${mark}${amount(bi.grantedBalance)}`);
     }
     if (!b.isAvailable) parts.push('余额不可用');
     if (b.cached) parts.push('缓存');
     $('usageBalanceComp').textContent = parts.join(' · ');
   }
 
-  for (const [name, value] of [['usageQuotaTime', sb?.usageAt], ['usageBalanceTime', b?.observedAt]]) {
+  for (const [name, value] of [['usageQuotaTime', sb?.usageAt]]) {
     const time = $(name);
     time.hidden = value == null;
     time.textContent = value == null ? '' : `${fmtTime(value)} 更新`;
@@ -873,8 +1052,7 @@ function renderUsage({ usageError = null, balanceError = null, quotaError = null
     $('usageTokensVal').textContent = '—';
     $('usageTokensComp').textContent = usageError ? '读取失败' : '读取中…';
   } else {
-    $('usageTokensVal').innerHTML = t?.totalTokens != null
-      ? `${compactNum(t.totalTokens)} <small>tokens</small>` : '—';
+    $('usageTokensVal').textContent = t?.totalTokens != null ? compactNum(t.totalTokens) : '—';
     const parts = [];
     if (t?.inputTokens != null) parts.push(`输入 ${compactNum(t.inputTokens)}`);
     if (t?.outputTokens != null) parts.push(`输出 ${compactNum(t.outputTokens)}`);
@@ -882,20 +1060,15 @@ function renderUsage({ usageError = null, balanceError = null, quotaError = null
     $('usageTokensComp').textContent = parts.length ? parts.join(' · ') : '暂无用量记录';
   }
 
-  if (u) {
-    const s = u.shanbay?.stats ?? {}, l = u.llm?.stats ?? {}, p = u.pretranslation ?? {};
-    // One line, always: the card title already says 近 30 天, so the period label is dropped and
-    // the counters are compressed to label+number. Units are in the labels, not repeated per value.
-    const bits = [`请求 ${(s.requests ?? 0) + (l.requests ?? 0)}`,
-      `缓存 ${(s.cacheHits ?? 0) + (l.cacheHits ?? 0)}`, `预译 ${p.completedSentences ?? 0}`, `分析 ${p.analyzedSentences ?? 0}`];
-    if (u.recording && u.recording.available === false) bits.push('不完整');
-    $('usageFoot').replaceChildren(...(usageError
-      ? [Object.assign(document.createElement('span'), { textContent: '读取失败：' + usageError.message + ' · 已保留上次记录' })]
-      : bits.map(t => Object.assign(document.createElement('span'), { textContent: t }))));
-  } else {
-    $('usageFoot').replaceChildren(Object.assign(document.createElement('span'),
-      { textContent: usageError ? '读取失败：' + usageError.message : '仅统计本机记录' }));
-  }
+  const s = u?.shanbay?.stats ?? {}, l = u?.llm?.stats ?? {}, p = u?.pretranslation ?? {};
+  const counters = {
+    usageRequests: u ? (s.requests ?? 0) + (l.requests ?? 0) : '—',
+    usageCacheHits: u ? (s.cacheHits ?? 0) + (l.cacheHits ?? 0) : '—',
+    usagePrepared: u ? p.completedSentences ?? 0 : '—',
+    usageAnalyzed: u ? p.analyzedSentences ?? 0 : '—',
+  };
+  for (const [id, value] of Object.entries(counters)) $(id).textContent = String(value);
+  $('usageFoot').title = u?.recording?.available === false ? '部分历史记录不完整' : '仅统计本机记录';
 }
 
 async function refreshUsage({ force = false } = {}) {
@@ -906,7 +1079,8 @@ async function refreshUsage({ force = false } = {}) {
     $('usageQuotaSub').textContent = '用量统计需要新版 App';
     $('usageBalanceComp').textContent = '余额查询需要新版 App';
     $('usageTokensComp').textContent = '—';
-    $('usageFoot').textContent = '仅 app 内可用';
+    for (const id of ['usageRequests', 'usageCacheHits', 'usagePrepared', 'usageAnalyzed']) $(id).textContent = '—';
+    $('usageFoot').title = '仅 app 内可用';
     return;
   }
   usageLoading = true;
@@ -928,7 +1102,10 @@ async function refreshUsage({ force = false } = {}) {
   if (revision === usageRevision) {
     if (u.status === 'fulfilled') usageSnapshot = u.value;
     if (q.status === 'fulfilled' && q.value) {
-      usageSnapshot = { ...(usageSnapshot ?? {}), shanbay: q.value };
+      // The quota reply carries only the percentage; keep the request/cache counters
+      // the usage snapshot already reported for this account.
+      usageSnapshot = { ...(usageSnapshot ?? {}),
+        shanbay: { ...(usageSnapshot?.shanbay ?? {}), ...q.value } };
     }
     if (q.status === 'rejected' && q.reason?.code === 'CONFIG_CHANGED') {
       if (usageSnapshot) usageSnapshot = { ...usageSnapshot, shanbay: null };
@@ -951,7 +1128,7 @@ async function refreshUsage({ force = false } = {}) {
 $('usageRefresh').addEventListener('click', () => void refreshUsage({ force: true }));
 
 window.hwfeePretranslationStatus = (message, { error, notify = false } = {}) => {
-  $('pretranslationState').textContent = error ? '未完成 · 已暂停自动重试' : message;
+  $('pretranslationState').textContent = error ? '未完成 · 已暂停自动重试' : message || '自动缓存今日译文与分析 · 缓存 30 天';
   $('pretranslationRetry').hidden = !error;
   $('pretranslationDetail').hidden = !error;
   $('pretranslationDetail').textContent = error ? '本次未完成：' + error : '';
@@ -959,30 +1136,6 @@ window.hwfeePretranslationStatus = (message, { error, notify = false } = {}) => 
     detail: error + '；已完成的翻译和分析保留在缓存中' });
 };
 
-const help = $('autoTranslateHint'), helpButton = $('pretranslationHelp');
-function closePretranslationHelp() { help.hidden = true; helpButton.setAttribute('aria-expanded', 'false'); }
-helpButton.addEventListener('click', () => {
-  help.hidden = !help.hidden;
-  helpButton.setAttribute('aria-expanded', String(!help.hidden));
-});
-document.addEventListener('pointerdown', event => {
-  if (!help.contains(event.target) && !helpButton.contains(event.target)) closePretranslationHelp();
-});
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !help.hidden) { closePretranslationHelp(); helpButton.focus(); }
-});
-const routingHint = $('routingHint'), routingButton = $('routingHelp');
-const closeRoutingHelp = () => { routingHint.hidden = true; routingButton.setAttribute('aria-expanded', 'false'); };
-routingButton.addEventListener('click', () => {
-  routingHint.hidden = !routingHint.hidden;
-  routingButton.setAttribute('aria-expanded', String(!routingHint.hidden));
-});
-document.addEventListener('pointerdown', event => {
-  if (!routingHint.contains(event.target) && !routingButton.contains(event.target)) closeRoutingHelp();
-});
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !routingHint.hidden) { closeRoutingHelp(); routingButton.focus(); }
-});
 $('pretranslationRetry').addEventListener('click', () => {
   void readFrame.contentWindow?.hwfeePrepareDaily?.({ forceTranslation: true });
 });
@@ -1007,9 +1160,12 @@ $('autoTranslate').addEventListener('change', async (event) => {
 
 // --------------------------------------------------------------- appearance
 
-const darkModeInput = $('darkMode');
-const appearanceSystem = $('appearanceSystem');
+const APPEARANCE_MODES = ['system', 'light', 'dark'];
+const appearanceSeg = $('appearanceSeg');
+const appearanceButtons = [...appearanceSeg.querySelectorAll('[data-mode]')];
 let appearanceSnapshot = { mode: 'system', dark: false };
+let appearanceAvailable = false;
+let appearanceBusy = false;
 let appearanceRevision = 0;
 const appearanceMedia = new WeakMap();
 
@@ -1045,12 +1201,29 @@ function syncAppearanceDocuments() {
 for (const frame of [listenFrame, readFrame, playerFrame]) frame.addEventListener('load', syncAppearanceDocuments);
 window.addEventListener('load', syncAppearanceDocuments);
 
+function paintAppearanceSeg(mode) {
+  const index = Math.max(0, APPEARANCE_MODES.indexOf(mode));
+  appearanceSeg.dataset.active = String(index);
+  appearanceSeg.style.setProperty('--seg-index', String(index));
+  for (const button of appearanceButtons) {
+    const selected = button.dataset.mode === APPEARANCE_MODES[index];
+    button.setAttribute('aria-checked', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  }
+}
+
+function syncAppearanceDisabled() {
+  const disabled = !appearanceAvailable || appearanceBusy;
+  appearanceSeg.classList.toggle('is-disabled', !appearanceAvailable);
+  for (const button of appearanceButtons) button.disabled = disabled;
+}
+
 function renderAppearance(snapshot, available = true) {
   appearanceSnapshot = snapshot;
+  appearanceAvailable = available;
   syncAppearanceDocuments();
-  darkModeInput.checked = Boolean(snapshot.dark);
-  darkModeInput.disabled = !available;
-  appearanceSystem.hidden = snapshot.mode === 'system' || !available;
+  paintAppearanceSeg(snapshot.mode);
+  syncAppearanceDisabled();
   $('appearanceState').textContent = !available ? '仅 App 内可手动切换'
     : snapshot.mode === 'system' ? `跟随系统 · 当前${snapshot.dark ? '深色' : '浅色'}`
       : snapshot.dark ? '已固定为深色' : '已固定为浅色';
@@ -1058,37 +1231,72 @@ function renderAppearance(snapshot, available = true) {
 
 async function loadAppearance() {
   if (typeof tabBarApi?.getAppearance !== 'function') {
+    appearanceBusy = false;
     renderAppearance({ mode: 'system', dark: Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches) }, false);
     return;
   }
   const revision = ++appearanceRevision;
   try {
     const snapshot = await tabBarApi.getAppearance();
-    if (revision === appearanceRevision) renderAppearance(snapshot);
+    if (revision === appearanceRevision) {
+      appearanceBusy = false;
+      renderAppearance(snapshot);
+    }
   } catch {
-    if (revision === appearanceRevision) renderAppearance(appearanceSnapshot, false);
+    if (revision === appearanceRevision) {
+      appearanceBusy = false;
+      renderAppearance(appearanceSnapshot, false);
+    }
   }
 }
 
 async function changeAppearance(mode) {
-  if (typeof tabBarApi?.setAppearance !== 'function') return;
+  if (typeof tabBarApi?.setAppearance !== 'function' || !APPEARANCE_MODES.includes(mode)) return;
+  if (mode === appearanceSnapshot.mode && !appearanceBusy) return;
   const previous = appearanceSnapshot;
   const revision = ++appearanceRevision;
-  darkModeInput.disabled = true;
-  appearanceSystem.disabled = true;
+  appearanceBusy = true;
+  paintAppearanceSeg(mode);
+  syncAppearanceDisabled();
   try {
     const snapshot = await tabBarApi.setAppearance({ mode });
-    if (revision === appearanceRevision) renderAppearance(snapshot);
+    if (revision === appearanceRevision) {
+      appearanceBusy = false;
+      renderAppearance(snapshot);
+    }
   } catch (error) {
-    if (revision === appearanceRevision) renderAppearance(previous);
+    if (revision === appearanceRevision) {
+      appearanceBusy = false;
+      renderAppearance(previous);
+    }
     toast('外观切换失败', { kind: 'error', detail: error.message });
   } finally {
-    appearanceSystem.disabled = false;
+    if (revision === appearanceRevision) {
+      appearanceBusy = false;
+      syncAppearanceDisabled();
+    }
   }
 }
 
-darkModeInput.addEventListener('change', () => void changeAppearance(darkModeInput.checked ? 'dark' : 'light'));
-appearanceSystem.addEventListener('click', () => void changeAppearance('system'));
+appearanceSeg.addEventListener('click', (event) => {
+  const button = event.target.closest?.('[data-mode]');
+  if (!button || button.disabled) return;
+  void changeAppearance(button.dataset.mode);
+});
+appearanceSeg.addEventListener('keydown', (event) => {
+  if (appearanceBusy || !appearanceAvailable) return;
+  const current = Math.max(0, APPEARANCE_MODES.indexOf(appearanceSnapshot.mode));
+  let next = -1;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % APPEARANCE_MODES.length;
+  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current + APPEARANCE_MODES.length - 1) % APPEARANCE_MODES.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = APPEARANCE_MODES.length - 1;
+  if (next < 0) return;
+  event.preventDefault();
+  const mode = APPEARANCE_MODES[next];
+  void changeAppearance(mode);
+  appearanceSeg.querySelector(`[data-mode="${mode}"]`)?.focus();
+});
 window.hwfeeAppearanceChanged = loadAppearance;
 window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (appearanceSnapshot.mode === 'system') void loadAppearance();
@@ -1118,6 +1326,46 @@ $('shanbayLogin').addEventListener('click', async () => {
   }
 });
 
+// Extract the cookie here instead of importing the reader's whole data layer and decoder.
+function cookieFromInput(input) {
+  let text = String(input || '').trim();
+  if (text.startsWith('{')) {
+    try {
+      const json = JSON.parse(text);
+      const object = json['请求 Cookie'] || json.cookies || json;
+      text = Object.entries(object).filter(([key]) => ['auth_token', 'csrftoken', '_c_WBKFRo'].includes(key))
+        .map(([key, value]) => key + '=' + value).join('; ');
+    } catch { throw new Error('Cookie JSON 格式无效'); }
+  }
+  const patterns = [/(?:^|\s)(?:-b|--cookie)\s+\$?'([^']+)'/i,
+    /(?:^|\s)(?:-b|--cookie)\s+"([^"]+)"/i,
+    /(?:^|\s)(?:-H|--header)\s+\$?'cookie:\s*([^']+)'/i,
+    /(?:^|\s)(?:-H|--header)\s+"cookie:\s*([^"]+)"/i];
+  const cookie = patterns.map(pattern => text.match(pattern)?.[1]).find(Boolean) || text.replace(/^cookie:\s*/i, '');
+  if (/\r|\n/.test(cookie) || !/(?:^|;\s*)auth_token=([^;]+)/.test(cookie) || cookie.length > 20000) {
+    throw new Error('未找到 auth_token。请粘贴扇贝请求的 Cookie，或复制为 cURL 的完整内容。');
+  }
+  return cookie;
+}
+
+$('cookieSave').addEventListener('click', async () => {
+  const api = plugins()?.Shanbay;
+  if (!api?.setCookie) { toast('仅 app 内可用'); return; }
+  const button = $('cookieSave');
+  if (button.disabled) return;
+  button.disabled = true; button.textContent = '正在验证…';
+  try {
+    const cookie = cookieFromInput($('cookieInput').value);
+    await api.setCookie({ cookie });
+    $('cookieInput').value = '';
+    $('cookieSettings').open = false;
+    invalidateUsage(); clearVocabCache(); reloadRead(); refreshSettings();
+    toast('已保存扇贝登录态', { kind: 'success' });
+  } catch (error) {
+    toast('登录态未保存', { kind: 'error', detail: error.message });
+  } finally { button.disabled = false; button.textContent = '验证并保存登录态'; }
+});
+
 $('shanbayClear').addEventListener('click', async () => {
   const api = plugins()?.Shanbay;
   if (!api) return;
@@ -1130,9 +1378,9 @@ $('shanbayClear').addEventListener('click', async () => {
   refreshSettings();
 });
 
-$('llmSave').addEventListener('click', async () => {
+async function saveLlmConfig({ refreshModels = false } = {}) {
   const api = plugins()?.Llm;
-  if (!api) { toast('仅 app 内可用'); return; }
+  if (!api) { toast('仅 app 内可用'); return false; }
   const key = $('llmKey').value.trim();
   const baseUrl = $('llmBase').value.trim();
   const model = selectedModel();
@@ -1143,14 +1391,19 @@ $('llmSave').addEventListener('click', async () => {
     invalidateUsage();
     if (key || saved.baseUrl !== previousBase) modelCache = null;
     $('llmKey').value = '';
+    await refreshLlmState();
     toast(key ? '已保存翻译密钥' : '已保存接口设置', { kind: 'success' });
-    refreshLlmState();
     void refreshUsage();
     void readFrame.contentWindow?.hwfeePrepareDaily?.({ forceTranslation: true });
+    if (refreshModels) await refreshModelList();
+    return true;
   } catch (error) {
     toast('保存失败', { kind: 'error', detail: error.message });
+    return false;
   }
-});
+}
+
+$('llmSave').addEventListener('click', () => void saveLlmConfig());
 
 $('llmClear').addEventListener('click', async () => {
   const api = plugins()?.Llm;

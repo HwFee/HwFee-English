@@ -43,7 +43,8 @@
   function savePos(force) {
     if (window.__hwfeeReviewPlayback) return;
     const el = audio();
-    if (!el || recovering || el.error || el.readyState < 1 || !Number.isFinite(el.currentTime)) return;
+    if (!el || el.hwfeeSleepActive || el.dataset.hwfeeSleepRestoring === '1'
+        || recovering || el.error || el.readyState < 1 || !Number.isFinite(el.currentTime)) return;
     const now = Date.now();
     if (!force && now - lastSave < 2000) return;
     lastSave = now;
@@ -333,9 +334,12 @@
     let progress = {};
     try { progress = JSON.parse(localStorage.getItem('cherina-lesson:' + payload.id) || '{}'); } catch {}
     const detail = { dir, title: info.title, segment: (progress.seg || 0) + 1,
-      step: progress.step || 0, playing: !el.paused && !el.ended && !el.error };
+      step: progress.step || 0, playing: !el.paused && !el.ended && !el.error,
+      position: Number.isFinite(el.currentTime) ? el.currentTime : 0,
+      duration: Number.isFinite(el.duration) ? el.duration : 0, artwork: info.artwork };
     try {
-      if (!window.__hwfeeReviewPlayback) localStorage.setItem('hwfee:listen:last', JSON.stringify({ ...detail, at: now }));
+      if (!window.__hwfeeReviewPlayback && !el.hwfeeSleepActive && el.dataset.hwfeeSleepRestoring !== '1')
+        localStorage.setItem('hwfee:listen:last', JSON.stringify({ ...detail, at: now }));
       window.parent?.hwfeePlayerState?.(detail);
     } catch {}
     if (!api || el.dataset.hwfeeNativeAudio === '1') return;

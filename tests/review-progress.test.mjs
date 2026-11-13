@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8');
-const [template, server, identity, progress, shim, activity] = await Promise.all([
+const [template, server, identity, progress, shim, activity, savedState] = await Promise.all([
   read('web/listen/player.template.html'), read('android/app/src/main/java/com/hwfee/english/LessonServer.java'),
-  read('web/listen/player-identity.js'), read('web/listen/lesson-progress.js'), read('web/listen/player-shim.js'), read('web/listen/activity.js'),
+  read('web/listen/player-identity.js'), read('web/listen/lesson-progress.js'), read('web/listen/player-shim.js'), read('web/listen/activity.js'), read('web/listen/saved-state.js'),
 ]);
 const payload = { id: 'test', title: 'Test', podcast: '', audio: '', ui: 'zh', source_lang: 'en', target_lang: 'zh', notes: [],
   segments: [{ n: 1, from: 0, to: 2, start: 0, end: 30 }, { n: 2, from: 2, to: 4, start: 30, end: 60 }],
@@ -22,7 +22,7 @@ function fixture(review, storage) {
   audio.pause = () => { paused = true; audio.dispatchEvent(new w.Event('pause')); };
   audio.play = () => { paused = false; audio.dispatchEvent(new w.Event('play')); return Promise.resolve(); };
   w.requestAnimationFrame = () => 1; w.cancelAnimationFrame = () => {};
-  w.eval(identity); w.eval(progress); w.eval(activity);
+  w.eval(identity); w.eval(progress); w.eval(activity); w.eval(savedState);
   const method = server.slice(server.indexOf('static String injectNativeAudioHooks'), server.indexOf('static String injectActivityFixes'));
   const literal = method.slice(method.indexOf('String hooks ='), method.indexOf('return html.replace'));
   const hooks = [...literal.matchAll(/"(?:\\.|[^"\\])*"/g)].map(x => JSON.parse(x[0])).join('');
@@ -48,7 +48,7 @@ test('bookmark replay cannot overwrite checkpoints, resume links or completion d
   };
   const f = fixture(true, storage);
   try {
-    f.w.__hwfeeOpenSentence({ n: 1, a: 0 });
+    f.w.__hwfeeOpenSentence({ n: 1, a: 0, s: 'A complete sentence.' });
     assert.equal(f.audio.currentTime, 0);
     assert.equal(f.w.inspectPlayer.st.step, 1);
     f.audio.currentTime = 12;

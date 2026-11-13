@@ -11,8 +11,8 @@ Start at M0 — scaffold plus one APK installed on the phone. Nothing else is re
 | Scope | One app, two tabs. Shanbay data refreshes on the phone; lessons arrive by zip import. |
 | Stack | Capacitor shell + native Kotlin plugin layer. Both web UIs survive nearly verbatim. |
 | Translation and analysis | Shanbay SSE first, personal DeepSeek / OpenAI-compatible API fallback. One opt-in preparation switch warms translations and 10–120-word analyses; manual work shares their 30-day caches. |
-| Build | User authorized 1.0.9 packaging (versionCode 10), including the revised unified 39-lesson ZIP, on 2026-11-04 after the UI rollback and listening fixes. No phone installation or remote push is authorized by packaging alone. |
-| Playback | Background audio, lock-screen controls, sleep timer. |
+| Build | Signed `dist/HwFee-English-1.0.12-v7.apk` (versionCode 13), 2026-11-13: R8 code/resource shrinking, provider-only lesson shares, atomic pending imports and tab-plugin/inset lifecycle fixes. Keeps v6's continuous sleep mode, reader/highlight/settings fixes and earlier playback repairs. The revised 39-lesson ZIP remains usable. Release bridge/recreation, debug lifecycle, web/native tests and four Compose previews passed; see `HANDOFF.md`. No phone installation or remote push is authorized by packaging alone. |
+| Playback | Background audio, lock-screen controls, sleep timer. Sentence drills and loops use bounded PCM cache files; continuous stages use the whole lesson source. A sleep timer switches the full player to the whole lesson, bypasses automatic practice stops, preserves normal checkpoints, and pauses once at expiry. Saved/review clips remain bounded. |
 | Session | In-app Shanbay login WebView, cookie captured from `CookieManager`, paste-a-cURL as fallback. |
 
 ## Architecture

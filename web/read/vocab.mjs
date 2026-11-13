@@ -1,5 +1,16 @@
 export const CATEGORY_BITS = { today: 1, wordbook: 2, learned: 4, unlearned: 8 };
 
+/** Normalize typography, not morphology: provider-supplied inflections remain authoritative. */
+export function vocabularyKey(word) {
+  return String(word ?? '').normalize('NFC').trim().toLowerCase()
+    .replace(/[’‘ʼ]/g, "'").replace(/[‐‑]/g, '-');
+}
+
+export function vocabularyMask(word, masks) {
+  const key = vocabularyKey(word);
+  return masks.get(key) || (/\S's$/.test(key) ? masks.get(key.slice(0, -2)) : 0) || 0;
+}
+
 /** A missing or malformed check must never be treated as "not in the wordbook". */
 export function wordbookMembership(payload, vocabId) {
   if (!Array.isArray(payload?.objects)) throw new Error('生词本状态格式无效');
@@ -16,6 +27,8 @@ export function wordbookMembership(payload, vocabId) {
 export async function fetchVocabularyWithCounts(fetchPage, { pageSize = 1000, maxPages = 100 } = {}) {
   const masks = new Map();
   const headwords = new Map();
+  const families = [];
+  let coveredCategories = 15, syncDate = '', degraded = false;
   const pageSignatures = new Set();
   let total = null;
   let fetched = 0;
@@ -30,6 +43,15 @@ export async function fetchVocabularyWithCounts(fetchPage, { pageSize = 1000, ma
     if (total === null) total = payload.total;
     else if (payload.total !== total) throw new Error('扇贝生词总数在分页中发生变化');
 
+    if (payload.covered_categories !== undefined) {
+      if (!Number.isSafeInteger(payload.covered_categories) || payload.covered_categories < 0) throw new Error('扇贝高亮覆盖分类格式无效');
+      coveredCategories &= payload.covered_categories;
+    }
+    degraded ||= payload.degraded === true;
+    if (typeof payload.date === 'string') {
+      if (syncDate && syncDate !== payload.date) throw new Error('扇贝高亮日期在分页中发生变化');
+      syncDate = payload.date;
+    }
     const list = payload.vocabs;
     const signature = JSON.stringify(list);
     if (list.length && pageSignatures.has(signature)) throw new Error('扇贝生词分页没有前进');
@@ -42,12 +64,13 @@ export async function fetchVocabularyWithCounts(fetchPage, { pageSize = 1000, ma
       if (!Number.isSafeInteger(mask) || mask < 0) throw new Error('扇贝生词分类格式无效');
       if (!Array.isArray(item.variants ?? [])) throw new Error('扇贝生词变形格式无效');
       const words = [item.vocab, ...(item.variants ?? [])];
+      families.push(words.map(vocabularyKey));
       for (const value of words) {
         if (typeof value !== 'string' || !value.trim()) throw new Error('扇贝生词词条为空');
-        const word = value.trim().toLowerCase();
+        const word = vocabularyKey(value);
         masks.set(word, (masks.get(word) || 0) | mask);
       }
-      const headword = String(item.vocab).trim().toLowerCase();
+      const headword = vocabularyKey(item.vocab);
       headwords.set(headword, (headwords.get(headword) || 0) | mask);
     }
 
@@ -65,7 +88,7 @@ export async function fetchVocabularyWithCounts(fetchPage, { pageSize = 1000, ma
       if (mask & CATEGORY_BITS[name]) counts[name] += 1;
     }
   }
-  return { entries: [...masks.entries()], counts };
+  return { entries: [...masks.entries()], counts, families, coveredCategories, syncDate, degraded };
 }
 
 export async function fetchVocabulary(fetchPage, opts) {
@@ -119,10 +142,10 @@ export function countArticleCategories(words, masks) {
   const counts = { wordbook: 0, today: 0 };
   const seen = new Set();
   for (const word of words) {
-    const key = String(word).toLowerCase();
+    const key = vocabularyKey(word);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    const mask = masks.get(key) || 0;
+    const mask = vocabularyMask(key, masks);
     if (mask & CATEGORY_BITS.wordbook) counts.wordbook += 1;
     if (mask & CATEGORY_BITS.today) counts.today += 1;
   }
@@ -153,7 +176,7 @@ export function validateVocabularyCache(record, { now = Date.now(), ttlMs } = {}
     if (!Array.isArray(entry) || entry.length !== 2
         || typeof entry[0] !== 'string' || !entry[0].trim()
         || !Number.isSafeInteger(entry[1]) || entry[1] < 0) return null;
-    const word = entry[0].trim().toLowerCase();
+    const word = vocabularyKey(entry[0]);
     masks.set(word, (masks.get(word) || 0) | entry[1]);
   }
   return [...masks.entries()];

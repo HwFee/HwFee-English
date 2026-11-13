@@ -56,3 +56,45 @@ test('loading and oversized results stay on the precomputed side and keep the an
     assert.equal(pop.el.style.top, '60px');
   } finally { closePopover(); dom.window.close(); }
 });
+
+test('a queued observer callback from a dismissed card cannot close its replacement', () => {
+  const dom = new JSDOM('<span id="anchor">Birds fly.</span>', { url: 'https://localhost', pretendToBeVisual: true });
+  const w = dom.window, observers = [];
+  globalThis.window = w; globalThis.document = w.document;
+  globalThis.getComputedStyle = w.getComputedStyle.bind(w);
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { this.deliver = callback; observers.push(this); }
+    observe() {}
+    disconnect() {}
+  };
+  const anchor = document.getElementById('anchor');
+  anchor.getClientRects = () => [{ left: 20, right: 180, top: 140, bottom: 165 }];
+  anchor.getBoundingClientRect = () => anchor.getClientRects()[0];
+  try {
+    openPopover({ anchor }).setBody(line('First'));
+    const second = openPopover({ anchor }); second.setBody(line('Second'));
+    observers[0].deliver([{ isIntersecting: false }]);
+    assert.equal(document.querySelector('.popover'), second.el);
+    assert.equal(second.body.textContent, 'Second');
+    observers[1].deliver([{ isIntersecting: false }]);
+    assert.equal(document.querySelector('.popover'), null);
+  } finally { closePopover(); dom.window.close(); globalThis.IntersectionObserver = undefined; }
+});
+
+test('dismissal cleans the DOM and listeners before notifying a failing subscriber', () => {
+  const dom = new JSDOM('<span id="anchor">Birds fly.</span>', { url: 'https://localhost', pretendToBeVisual: true });
+  const w = dom.window;
+  globalThis.window = w; globalThis.document = w.document;
+  globalThis.getComputedStyle = w.getComputedStyle.bind(w); globalThis.IntersectionObserver = undefined;
+  const anchor = document.getElementById('anchor');
+  anchor.getClientRects = () => [{ left: 20, right: 180, top: 140, bottom: 165 }];
+  anchor.getBoundingClientRect = () => anchor.getClientRects()[0];
+  try {
+    openPopover({ anchor, onClose() { throw new Error('subscriber failed'); } });
+    assert.throws(closePopover, /subscriber failed/);
+    assert.equal(document.querySelector('.popover'), null);
+    assert.equal(anchor.classList.contains('is-anchor'), false);
+    const next = openPopover({ anchor }); next.setBody(line('Recovered'));
+    assert.equal(document.querySelector('.popover-body').textContent, 'Recovered');
+  } finally { closePopover(); dom.window.close(); }
+});

@@ -10,11 +10,12 @@
   let refresh, cancelMetadata, listener, frame = 0, sequence = -1;
 
   function paint() {
-    for (const button of document.querySelectorAll('#saved button[data-k],#rvP')) {
+    for (const button of document.querySelectorAll('#saved .sv-play,#saved button[data-k]:not([data-remove-saved]),#rvP')) {
       const active = button.id === 'rvP' ? Boolean(activeKey) : button.dataset.k === activeKey;
       button.disabled = active && loading;
       button.setAttribute('aria-busy', String(active && loading));
-      button.setAttribute('aria-label', active && playing ? '暂停句子' : '播放句子');
+      const label = active && playing ? '暂停句子' : '播放句子';
+      button.setAttribute('aria-label', label);
       button.style.opacity = active && loading ? '.5' : '';
       const svg = button.querySelector('svg');
       if (svg) svg.innerHTML = active && playing
@@ -37,54 +38,66 @@
     }
     status.textContent = '句子播放失败：' + (error.message || String(error));
   }
-  function sourceFor(item) {
-    const raw = String(item.dir || '').replace(/\/$/, '');
-    const id = /^\/lessons\/([^/]+)/.exec(raw)?.[1] || raw.split('/').pop();
-    const lesson = lessons.find(row => row.id === id || row.dir === raw || row.legacyIds?.includes(id));
-    const dir = lesson?.dir || (/^\/lessons\/[A-Za-z0-9._-]+$/.test(raw) ? raw : '');
-    if (!dir) throw new Error('课程文件不可用，请重新导入对应课程');
-    return { lesson, source: new URL(dir + '/audio/episode.mp4', location.origin).href };
-  }
   function onState(state) {
     if (!lease || state.sourceId !== lease) return;
     if (Number.isFinite(state.sequence)) {
       if (state.sequence < sequence) return;
       sequence = state.sequence;
     }
-    if (state.playing) { playing = true; loading = false; }
-    else if (!loading || ['boundary', 'ended', 'error'].includes(state.event)) playing = false;
-    if (state.event === 'error') { loading = false; errorMessage(new Error(state.error || '原生音频不可用')); }
+    if (state.playing || ['boundary', 'ended', 'error'].includes(state.event)) loading = false;
+    if (!loading) playing = Boolean(state.playing);
+    if (state.event === 'error') errorMessage(new Error(state.error || '原生音频不可用'));
     paint();
   }
+  function stopClip() {
+    cancelMetadata?.();
+    cancelAnimationFrame(frame);
+    if (native) {
+      return lease ? api.nativeControl({ action: 'pause', sourceId: lease }).catch(() => {}) : Promise.resolve();
+    }
+    audio?.pause();
+    return Promise.resolve();
+  }
   function pause() {
-    ++request; cancelMetadata?.(); cancelMetadata = null;
-    cancelAnimationFrame(frame); playing = false; loading = false; paint();
-    if (native && lease) return api.nativeControl({ action: 'pause', sourceId: lease }).catch(() => {});
-    audio?.pause(); return Promise.resolve();
+    ++request;
+    playing = false;
+    loading = false;
+    paint();
+    return stopClip();
   }
   function watchClip() {
     if (!audio || audio.paused) return;
     if (audio.currentTime >= end - .02) { void pause(); return; }
     frame = requestAnimationFrame(watchClip);
   }
-  async function play(item) {
+  async function play(item, { toggle = true } = {}) {
     if (!item) return;
-    // Both the saved card and review panel return to the lesson's full player.
-    if (window.parent !== window && window.parent.hwfeeOpenSavedSentence) {
-      window.parent.hwfeeOpenSavedSentence(item);
+    if (activeKey === item.k && playing) {
+      if (toggle) await pause();
+      else paint(); // A newly opened review button must inherit the clip already playing.
       return;
     }
-    if (activeKey === item.k && playing) { await pause(); return; }
     const current = ++request;
-    cancelMetadata?.(); cancelMetadata = null;
+    const stopped = stopClip();
+    lease = ''; // Ignore the previous decoder's events while resolving the next bookmark.
     activeKey = item.k; loading = true; playing = false; paint();
     document.getElementById('savedPlaybackStatus')?.remove();
     try {
+      await stopped;
+      if (current !== request) return;
+      const original = item;
+      const resolved = await window.__hwfeeSavedState.resolve(original, lessons);
+      if (current !== request) return;
+      if (!resolved) { window.__hwfeeSavedState.remove(original); loading = false; activeKey = ''; update(); return; }
+      item = resolved.item;
+      window.__hwfeeSavedState.replace(original, item);
+      try { window.hwfeeSavedResolved?.(original.k, item); } catch {}
+      activeKey = item.k;
+      update();
       if (!Number.isFinite(item.a) || !Number.isFinite(item.b) || item.b <= item.a) throw new Error('收藏句子的时间无效');
-      const { source, lesson } = sourceFor(item);
+      const { source, lesson } = resolved;
       end = item.b;
       if (native) {
-        lease = '';
         try { window.parent?.hwfeeBeforeSavedClip?.(); } catch {}
         await api.nativeControl({ action: 'pause' });
         if (current !== request) return;
@@ -98,9 +111,8 @@
         if (current !== request) return;
         await api.nativeControl({ action: 'rate', sourceId: lease, rate: 1 });
         if (current !== request) return;
-        await api.nativeControl({ action: 'play', sourceId: lease, start: item.a, end: item.b, loop: false });
+        await api.nativeControl({ action: 'play', sourceId: lease, start: item.a, end: item.b, loop: false, drill: true });
       } else {
-        audio.pause();
         if (audio.currentSrc !== source || audio.readyState < 1) {
           await new Promise((resolve, reject) => {
             const cleanup = () => { clearTimeout(timer); audio.removeEventListener('loadedmetadata', ready); audio.removeEventListener('error', failed); cancelMetadata = null; };
@@ -114,9 +126,10 @@
         }
         if (current !== request) return;
         audio.currentTime = item.a; audio.playbackRate = 1;
-        await audio.play(); frame = requestAnimationFrame(watchClip);
+        await audio.play();
+        if (current === request) frame = requestAnimationFrame(watchClip);
       }
-      if (current === request) { loading = false; playing = true; paint(); }
+      if (current === request && loading) { loading = false; playing = true; paint(); }
     } catch (error) {
       if (current !== request || error.name === 'AbortError') return;
       loading = false; playing = false; paint(); errorMessage(error);

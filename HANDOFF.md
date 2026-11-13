@@ -2,6 +2,115 @@
 
 One Android app for two personal tools: **cherina-pod 精听** lessons and a **扇贝阅读** daily reader.
 
+## Audit repairs — 2026-11-13 (signed v7)
+
+`dist/HwFee-English-1.0.12-v7.apk` keeps v6's playback and reader behavior, with hardened lesson
+shares and release shrinking. External VIEW/SEND intents accept `content://` only, including explicit
+intents; the pending URI is consumed atomically. The tab plugin detaches on Activity destruction,
+settles abandoned calls, and publishes real navigation-inset changes to the shell and its iframes.
+Four light/dark Compose previews live in the debug source set. Package metadata now matches 1.0.12.
+Removed the accidental root `nul`, unused layout and template strings; kept Cordova's runtime-loaded
+`config.xml` through a resource-shrinker rule.
+
+The signed APK is 10,045,186 bytes (9.58 MiB), down 63.5% from v6. Uncompressed DEX is 2,187,792
+bytes (2.09 MiB), down 89.2%; Android CLI confirms R8 and full mode are enabled. The delivered APK's
+SHA-256 is `32a2e29b5c2edde8e093e19ebd41e74a6977e9efb6246c3c8d71405c12604424`.
+
+Validation: `npm test` passed 267 web and 185 native tests, with 3 Windows symlink cases skipped.
+The signed release passed the platform-only bridge test before/after Activity recreation; debug
+passed the callback/plugin-cleanup test. All four previews rendered. Android Lint: 0 errors,
+15 warnings, including dependency updates and existing context/JavaScript/storage notices.
+Testing used a temporary read-only emulator session; no phone installation or remote push occurred.
+
+The pasted report predates parts of the worktree: `node --test` discovery was already fixed, and
+the reported `SentenceClip.awaitFinish` / `engine.shutdown()` paths no longer exist. The current
+bounded PCM/MediaPlayer engine passed its existing unit suite without another audio rewrite.
+
+## Continuous sleep playback — 2026-11-11 (signed v6)
+
+Install `dist/HwFee-English-1.0.12-v6.apk` over v5; no reinstall, data clear or course reimport.
+Sleep mode now skips sentence/segment stops, looping and automatic ratings, while manual pause,
+seek, speed and timer changes still work. Opening from an automatic pause starts once; expiry
+pauses once and exits. Normal practice checkpoints and completion counts are preserved and the
+original practice position is restored on exit. Saved/review clips retain their exact bounds.
+
+The WebView and native decoder both switch to the whole lesson for this mode; `LessonServer` wires
+`sleep-playback.js` into the original player without changing imported lesson files. Native expiry
+and queued timer races cannot override a newer timer or cause repeated pauses. The sleep sheet now
+explains this behavior in both the app and V3 preview.
+
+Validation: **266 Web tests passed**; **183 native tests**, zero failures/errors, three existing
+Windows skips. Eight stage/loop combinations passed the actual injected-player browser checks,
+including no automatic pause/seek and unchanged checkpoints, plus hidden-frame recovery, timer
+replacement and expiry races. Saved review remains valid. Android lint: **0 errors / 19 warnings**;
+47 packaged web assets match source. Release certificate `ab63a748…b58c`, v1/v2 verified.
+No phone installation or remote push; lock-screen listening still needs device confirmation.
+Details: [sleep-mode validation](docs/SLEEP-CONTINUOUS-2026-11-11.md).
+
+APK SHA-256: `cd346969c71c283232f1964ac4dfd5bcc13b3fa5eaae7bacb3d56d9447455732`.
+
+## Reader recovery, highlights and settings alignment — 2026-11-11 (signed v5)
+
+Install `dist/HwFee-English-1.0.12-v5.apk` over the existing release; keep app data. Reader cards now
+handle click-only dismissal, retargeted releases, multi-touch and navigation cancellation; interrupted
+requests offer retry instead of an endless skeleton. Loading, slow requests, quota failures and
+impossible card placement have actionable copy. The reader includes a `刷新高亮` action.
+
+Checked the installed Zen extension **扇贝翻译 0.17.1** source without reading credentials. Highlights
+now revalidate on entry/resume (one-minute throttle), supplement the feed with today's verified
+NEW/REVIEW headwords and supplied variants, normalize typographic apostrophes/hyphens, and reject
+partial coverage as complete-cache success. Yesterday's daily flags expire without erasing wordbook
+flags. Server-omitted words cannot be invented; the affected phone's remaining missing words and
+force-stop/re-login report still need device confirmation.
+
+Settings geometry now matches the normalized V3 preview at 390/326 px in light/dark, including the
+expanded Cookie form and model picker. Both draft keys and saved placeholders use the same filled
+circle via the 800-byte `web/fonts/PasswordDots.woff2`; the input remains `type="password"`. Regenerate
+with `python tools/generate-password-font.py`. Selecting a model closes the list.
+
+Validation: **252 Web tests passed**; **173 native tests**, zero failures/errors, three existing
+Windows skips; lint **0 errors / 19 warnings**. Real-module Chromium stress covered 250 event-driven
+taps and 160 tab switches; CDP touch separately checked long presses and interruption recovery.
+All 46 web assets match the signed APK. Saved review still passes. No phone install/push or paid
+request was performed. Screenshots were blocked by a minimized window; alignment evidence is
+DOM/glyph measurement. Details: [reader/settings validation](docs/READER-GESTURES-2026-11-11.md).
+
+APK SHA-256: `4ce4cfbec418c3b21b3373f65eac88a5980de2c1ea0d9309824d650818155cf6`.
+Original release certificate: `ab63a748…b58c`; v1/v2 verified. v5 supersedes the v4 artifact below.
+
+## V3 preview implementation — 2026-11-11 (source and signed APK)
+
+Implemented `designs/ux-pm-preview.html` without rewriting imported lessons. Settings now uses the
+V3 grouped cards, four-count usage strip, quota meter and two-column balance/Token metrics; the two
+help buttons are gone, saved keys use thick bullets, and the Cookie/cURL fallback is available in a
+disclosure row. The listening library has grouped saved cards (three visible, inline expansion,
+separate clip/original-course actions and undo), course filters and native deletion. Review is
+immersive and its play button synchronizes with an already-playing clip. A floating mini-player
+follows the loaded lesson across tabs and preserves normal checkpoints. Reader home gained the V3
+hero metadata. Player geometry, back chevron and sleep-timer sheet are injected by `LessonServer`;
+`web/listen/player-v3.js` owns only the added chrome and native `Audio.sleep` calls.
+
+Corrections after the first phone install (2026-11-11, same day): the four counters were being
+stretched to the card edges by a leftover `#usageFoot{display:flex}` rule — now one grid, no gap,
+dividers only between cells; a quota refresh no longer wipes the request/cache counters it did not
+carry; the three chevrons point right and turn down when open; the preload row, its separator and
+the 10px sub-action line match the preview; the player's back button leads the header and the sleep
+control is icon-only; the mini player reveals the loaded lesson before switching tabs; the review
+entry re-reads bookmarks before opening, so a stale template copy can no longer make it a no-op.
+
+Validation: 214 Web tests passed; 173 native JVM/Robolectric tests passed with 0 failures and the
+three existing Windows symlink skips. `node tools/verify-saved-review.mjs` passes the real Java-served
+fixture, including 3 → 2 → 1 → 0 review counts, a stale bookmark copy that still opens review, and
+unchanged normal progress. Chromium checks at 390/326 px in light/dark found no horizontal overflow;
+the 326 px usage strip measures four equal 60 px cells with centred values and no truncation, and
+review hides import and tabs while open. `npx cap sync android`, `npm run apk`, `npm run apk:release`
+and Android lint passed (0 errors / 20 nonblocking warnings). All 45 source web files match their
+packaged copies. The first V3 artifact used the debug certificate and could not install over the
+release build; signed artifacts are `dist/HwFee-English-1.0.12-v3.apk` (superseded) and
+`dist/HwFee-English-1.0.12-v4.apk`, SHA-256
+`857167c71d8cc2b1793d5b9e6d9e932950f80260f6623d35f8e09e058fedd89e`. Both carry the original
+release certificate `ab63a748…b58c`. No phone installation or remote push was performed.
+
 ## Playback/appearance investigation — 2026-11-04 (source, not released)
 
 Branch `fix/playback-and-appearance` starts from main `5d5be21`. Saved/review Play
@@ -533,7 +642,7 @@ No secret is committed.
 JS modules in `web/read/`:
 
 - `bridge.mjs` — `loadState()`, `hasSession()`, `cachedArticles()` (unused so far: the article history view)
-- `gestures.mjs` — `decorate(root)`, `initGestures(root)`, `loadHighlightVocab()`, `setHighlightCategories([...])` (the last one is unused: highlight category toggles)
+- `gestures.mjs` — `decorate(root)`, `initGestures(root)`, `resetGestures(root?)`, `loadHighlightVocab()`, `setTodayVocabulary(words, date)`, `setHighlightCategories([...])` (the last one is unused: highlight category toggles)
 - `sheet.mjs` — `openSheet({kicker, title, content, actions})`, `closeSheet()`, `line()`, `spinner()`
 
 ---
