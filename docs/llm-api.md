@@ -135,4 +135,4 @@ cache. Completed batches survive later failure, so retries skip their work.
 
 Network/file work runs outside Capacitor's common plugin queue. Pretranslation, cancellation and
 usage reads have separate executors. See [the wire protocol](shanbay-sentence-analysis.md),
-[usage API](usage-api.md), and [the authorized article test](shanbay-quota-test-2026-11-03.md).
+[usage API](usage-api.md), and [shanbay-api.md](shanbay-api.md).

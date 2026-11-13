@@ -1,5 +1,5 @@
 Use `getUsage({days: 30})` to populate Settings. This reads local records and never spends Shanbay
-quota or API tokens. The backend and the other model's Settings display ship in version 1.0.4.
+quota or API tokens.
 
 DeepSeek monetary balance is a separate network read: see [getDeepSeekBalance](deepseek-balance-api.md).
 It uses the saved official DeepSeek key and does not change this local-usage contract.
@@ -125,6 +125,5 @@ reuse across invocations. A run is stopped when either translation or analysis r
 Read on Settings entry, an explicit refresh, and after translation/preparation completes. If the
 frontend polls for `inFlight`, poll only while the display is visible. Keep loading/error feedback;
 retain the last snapshot when a later local read fails. See [llm-api.md](llm-api.md) for routing,
-cache, cancellation and analysis, and [the authorized quota test](shanbay-quota-test-2026-11-03.md)
-for the measured article cost. That external test is documented separately, not inserted into the
-app's installation ledger as historical billing data.
+cache, cancellation and analysis, and [shanbay-api.md](shanbay-api.md) for measured live quota
+observations (kept out of the app's local historical ledger).

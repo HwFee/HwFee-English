@@ -44,7 +44,7 @@ The book's `finish_count` describes words already studied, rather than words mar
 | GET | `/news/retrieve/articles?ipp=10&page=1` | latest article list |
 | GET | `/news/articles/{id}?source=1` | article body |
 
-Body comes as XML-ish markup: `<para><sent>` with possibly CDATA. Parse paragraphs by joining sentences, as `tools/import-daily.mjs` does.
+Body comes as XML-ish markup: `<para><sent>` with possibly CDATA. Parse paragraphs by joining sentences, as `web/read/bridge.mjs` does.
 
 ## Wordbook (add / check / remove)
 
@@ -56,7 +56,7 @@ Body comes as XML-ish markup: `<para><sent>` with possibly CDATA. Parse paragrap
 | DELETE | `/wordscollection/words` | `{vocab_ids: [...]}` |
 | POST | `/wordscollection/words/reset` | `{vocab_ids: [...]}` — schedule today's review |
 
-429 = rate limited, 401 = session dead. `business_id` is supplied by the extension at call time; confirm its constant on first live call.
+429 = rate limited, 401 = session dead. Wordbook creation requires `business_id: 1` (verified; omitting it returns HTTP 400).
 
 ## Word highlight feed — verified on device
 
@@ -84,7 +84,7 @@ merging, coverage/date metadata and periodic synchronization. The app keeps a si
 snapshot but revalidates on reader entry/resume (one-minute throttle), shows partial-sync failures,
 and offers **刷新高亮**. The already-fetched NEW/REVIEW headwords supplement the feed without another
 learning-list request; their flags apply to provider-supplied variants. Yesterday's daily flags do
-not survive a date rollover. See [the reader validation](READER-GESTURES-2026-11-11.md).
+not survive a date rollover. See [CHANGELOG.md](CHANGELOG.md) (`v1.0.12 — v5`).
 
 This feed is a subset for highlighting. Its `wordbook` and `learned` totals must not
 populate the home dashboard. Live checks on 2026-11-03 returned 364 collected words
@@ -126,7 +126,8 @@ They are metered (`usage` event → `remaining_percent`, `quota_exceeded` → `r
 `translate_sentence` (`403` → `vip_required`). Failures use the personal API when configured.
 
 Full wire format of the 长难句 pair — request bodies, every SSE event, the eight component types, and a real
-captured stream — is in [shanbay-sentence-analysis.md](shanbay-sentence-analysis.md). Measured there: one
-55-word analysis costs 2 quota points, its translation 7.
+captured stream — is in [shanbay-sentence-analysis.md](shanbay-sentence-analysis.md). Measured live:
+one 55-word analysis cost 2 quota points (its translation 7); a whole-article `translate_sentence`
+pass over 37 sentences (657 words) consumed 7 percentage points (`91% → 84%`, ~26 seconds).
 
 Sentence bookmarks (`/bay-translate/bookmarks`, `/bookmarks/check?sentence=`, `PUT`/`DELETE /bookmarks/{id}`) remain available if saving translated sentences is ever wanted — they are a separate store from the wordbook.

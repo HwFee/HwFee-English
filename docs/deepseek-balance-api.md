@@ -1,5 +1,4 @@
 Call `getDeepSeekBalance()` to display the saved DeepSeek account's balance in Settings.
-The backend, helper and Settings display are included in the signed 1.0.4 release.
 
 ```js
 import { getDeepSeekBalance } from './read/llm.mjs'; // From a module in web/.
@@ -76,5 +75,5 @@ Read on Settings entry and explicit refresh; avoid continuous background polling
 the latest observation time and a failure reason. [getUsage](usage-api.md) remains a separate local
 statistics read and does not query DeepSeek balance. Mock-server tests verify amounts, unavailable
 accounts, cache expiry, account changes, concurrent refreshes, sanitized failures and time bounds;
-no real API key or paid completion is used for these tests. The separately authorized
-[live endpoint verification](VALIDATION-1.0.4-2026-11-03.md) also passed.
+no real API key or paid completion is used for these tests. Live endpoint verification notes
+are summarized in [CHANGELOG.md](CHANGELOG.md) (`v1.0.4`).

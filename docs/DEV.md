@@ -83,28 +83,18 @@ The translation tests use local HTTP fixtures and never call a paid provider.
 Translation caching, daily pretranslation and the structured long-sentence backend are documented
 in [llm-api.md](llm-api.md); the Settings usage backend is in [usage-api.md](usage-api.md).
 The separate [DeepSeek balance query](deepseek-balance-api.md) uses the saved official provider key.
-Run both web and native tests after changing that shared path. The user authorized the 1.0.4 release
-after live endpoint checks; see [the validation record](VALIDATION-1.0.4-2026-11-03.md). The
-[1.0.5 follow-up](VALIDATION-1.0.5-2026-11-03.md) adds analysis preparation and stable sentence cards.
-The [1.0.7 count verification](VALIDATION-1.0.7-2026-11-03.md) records official collection/current-book
-mastery sources, persistent totals, and smooth dashboard updates after confirmed wordbook edits.
-The [1.0.8 verification](VALIDATION-1.0.8-2026-11-04.md) covers independent quota refresh at zero,
-complete grammatical coverage, invalidation of partial analysis caches, and punctuation display.
-The [1.0.9 delivery](VALIDATION-1.0.9-2026-11-04.md) covers the UI rollback, appearance switch,
-saved-sentence playback and refresh, bounded bilingual cards, and compatible reimport of 39 revised lessons.
-The [1.0.10 sentence playback repair](SENTENCE-PLAYBACK-2026-11-05.md) replaces timed sentence
-stops with cached PCM clips, preserves the original lesson timeline, and records codec/device-test limits.
-The [continuous sleep mode follow-up](SLEEP-CONTINUOUS-2026-11-11.md) documents skipping automatic
-practice stops while preserving manual transport and normal checkpoints, including the native
-whole-source switch and timer-race tests.
-The [reader/settings follow-up](READER-GESTURES-2026-11-11.md) records gesture interruption recovery,
-highlight coverage/refresh and V3 settings measurements. `python tools/generate-password-font.py`
-regenerates the password-only filled-circle font from the bundled OFL Noto Sans SC source; the
-runtime input remains native and never receives a saved key.
-The [1.0.11 saved review wiring](SAVED-REVIEW-2026-11-05.md) keeps playback inside the library,
-makes 记住了 remove a bookmark, counts every saved sentence as pending, and validates old bookmarks
-only after import or when explicitly played. After `npm test`, run `node tools/verify-saved-review.mjs`
-to check the real Java-served library fixture, review actions and live counts together.
+Run both web and native tests after changing that shared path. Historical release checks and
+validations from `1.0.0` through `1.0.12-v7` are summarized in [CHANGELOG.md](CHANGELOG.md).
+
+Additional local checks and font/asset tools:
+
+- `node tools/verify-saved-review.mjs` — exercises the Java-served library fixture, bookmark review
+  actions (`忘了` / `模糊` / `记住了`), and live count updates together (run after `npm test`).
+- `node tools/benchmark-library.mjs` — repeats the library storage parsing micro-benchmark.
+- `python tools/generate-password-font.py` — regenerates `web/fonts/PasswordDots.woff2` from the
+  bundled OFL Noto Sans SC source; the runtime input remains native and never receives a saved key.
+- `python tools/generate-tab-font.py` — subsets `android/app/src/main/res/font/noto_sans_sc_tabs.ttf`
+  if native tab labels in `GlassTabBar.kt` change.
 
 `SentenceClipDeviceTest` uses a synthetic AAC asset with two consecutive tones. Set `ANDROID_SERIAL`
 to the intended emulator, then run:
@@ -164,7 +154,7 @@ node tools/invoke.mjs "Capacitor.Plugins.Lessons.list()"
 `tools\invoke.mjs` evaluates any expression in the page, awaits promises, and prints the value.
 That is how bridge calls, injected pages and player state get checked without UI automation.
 
-Screenshot: `adb shell screencap -p /sdcard/s.png` then `adb pull /sdcard/s.png docs\shots\name.png`.
+Screenshot: `adb shell screencap -p /sdcard/s.png` then `adb pull /sdcard/s.png .tmp\shots\name.png`.
 
 ## Importing a lesson zip on the emulator
 
