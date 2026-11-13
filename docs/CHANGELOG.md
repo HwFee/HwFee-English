@@ -78,7 +78,7 @@
 
 ## v1.0.2 – v1.0.3（2026-11-02，`versionCode 3–4`）
 
-- **原生音频解码引擎与 PDF 讲义**：上线 `NativeAudioEngine` 替代极易在后台掉线的 WebView 解码循环；支持 `存为 PDF`（`HandoutPdfExporter`）；重构 `tools/bundle-lesson-covers.py` 将封面内置于课程 ZIP；完善按秒精确续播与阶段解锁检查。
+- **原生音频解码引擎与 PDF 讲义**：上线 `NativeAudioEngine` 替代极易在后台掉线的 WebView 解码循环；支持 `存为 PDF`（`HandoutPdfExporter`）；曾通过 `tools/bundle-lesson-covers.py` 将封面内置于课程 ZIP（统一建库内置封面后已移除）；完善按秒精确续播与阶段解锁检查。
 - **326 CSS px 真机截图适配**：修复窄屏播控栏偏移 15 px 问题、注入 `--hwfee-nav-inset` 避让手势条、`#bHome` 返回应用库且后台持续播放（`#playerFrame` 与 library 分离）、`fetchLiveVocabCounts` 绕过 6 小时高亮缓存、10 分钟生词本本地乐观覆盖与 `visibility: hidden` 免重绘切屏。
 
 ## v1.0 & 基础可靠性 / 安全审核（2026-11-01 – 2026-11-02，`versionCode 1`）
